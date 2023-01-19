@@ -1,5 +1,7 @@
 # PerfectP2P-frontend-app
-Decentralized app without a need for a signaling server. Uses EVM(currently AVAX) contract as a registration and signaling system. Requires Metamask for communications with the blockchain. The EVM contract repository name is PerfectP2P-backend. You can use it to deploy to arbitrary EVM chain.
+Decentralized WebRTC chating app without a need for a centralized signaling server or any kind of active DHT bootstraping nodes. Uses EVM(currently AVAX) contract as a registration and signaling system. Requires Metamask for communication with the blockchain. The EVM contract repository name is PerfectP2P-backend. You can use it to deploy to arbitrary EVM chain.  
+
+The idea is that this chat will live as long as will the corresponding underlying blockchain. Even if there were absolutely zero active participants, in any time two peers would be able to negotiate connection through contract and talk to each other.  
 ## How to run
 Simply download "dist" folder and open index.html. This is sufficient to run the app.  
 ## How to connect  
