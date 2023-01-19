@@ -49,6 +49,22 @@ msgInputElement.addEventListener("keypress", function (event) {
     sendMsg(currentChatSession);
   }
 });
+document.onclick = function (event) {
+  if (
+    !contactsListElement.contains(event.target) &&
+    !showContactsButton.contains(event.target)
+  ) {
+    console.log("close contacts!");
+    contactsListElement.style.display = "none";
+  }
+  if (
+    !connectionRequestsListElement.contains(event.target) &&
+    !showConnectionRequestsButton.contains(event.target)
+  ) {
+    console.log("close conn reqs!");
+    connectionRequestsListElement.style.display = "none";
+  }
+};
 
 //state(to merge with states section at the bottom)/refactor
 
@@ -126,7 +142,33 @@ function makePeerConnection(chatSession, isOfferSide) {
     //handleicecandidate(lasticecandidate);
   };
 
-  //peerConnection.onconnectionstatechange = handleconnectionstatechange;
+  peerConnection.onconnectionstatechange = function (event) {
+    switch (peerConnection.connectionState) {
+      case "new":
+      case "checking":
+        logChat(null, "Connecting...", chatSession);
+        break;
+      case "connecting":
+        logChat(null, "Connecting...", chatSession);
+        break;
+      case "connected":
+        logChat(null, "Connection established!", chatSession);
+        break;
+      case "disconnected":
+        logChat(null, "Oops, disconnected!", chatSession);
+        break;
+      case "closed":
+        logChat(null, "Oops, disconnected!", chatSession);
+        break;
+      case "failed":
+        logChat(null, "Connection failed!", chatSession);
+        break;
+      default:
+        console.log(peerConnection.connectionState);
+        logChat(null, "Looks like something gone wrong!", chatSession);
+        break;
+    }
+  };
   //peerConnection.oniceconnectionstatechange = handleiceconnectionstatechange;
 
   return peerConnection;
@@ -647,7 +689,8 @@ async function answerConnectionRequest(address) {
   await initChatSession(chatSession, offer); //chatSession.init();
   chatSessionsPerContactAddress.set(address, chatSession);
 
-  currentChatSession = chatSession; // to make it selectable from the menu
+  //currentChatSession = chatSession; // to make it selectable from the menu
+  selectChatWith(address);
   //const contract = await getContract();
 }
 async function requestConnectionTo(address) {
@@ -655,7 +698,8 @@ async function requestConnectionTo(address) {
   await initChatSession(chatSession); //chatSession.init();
   chatSessionsPerContactAddress.set(address, chatSession);
 
-  currentChatSession = chatSession; //make it selectable from the menu
+  selectChatWith(address);
+  //currentChatSession = chatSession; //make it selectable from the menu
   //const contract = await getContract();
 
   console.log(`requested connection to ${address}`);
@@ -675,6 +719,10 @@ function onShowActiveChatLists() {
 }
 function showConnectionRequestsList() {
   if (!onShowActiveChatLists()) return;
+
+  if (connectionRequestsListElement.childNodes.length == 0) {
+    return;
+  }
 
   showConnectionRequestsButton.classList.remove("new-notification");
 
@@ -745,6 +793,16 @@ async function onAddContact() {
   addContactToElementList(contactName, contactAddress);
 }
 function sendMsg(chatSession) {
+  if (accountName == null) {
+    Swal.fire({
+      title: "Error!",
+      text: "You need to sign in first!",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+    return;
+  }
+
   const msg = msgInputElement.value;
 
   console.log(JSON.stringify(chatSession));
@@ -757,27 +815,22 @@ function sendMsg(chatSession) {
   msgInputElement.value = "";
 }
 function logChat(from, msg, chatSession) {
-  if (accountName == null) {
-    Swal.fire({
-      title: "Error!",
-      text: "You need to sign in first!",
-      icon: "error",
-      confirmButtonText: "Cool",
-    });
-    return;
-  }
-
   const msgTemplate =
-    '<p > <span style="color:<%if (!self){%>red  <%}else{%> green <%}%>"> <%=from%>:</span> <span><%=msg%></span> </p>';
+    '<p > <span style="color:<%if (system){%>rgb(150,150,150) <%} else if (!self){%>red  <%}else{%> green <%}%>"> <%=from%>:</span> <span <%if (system){%> style="color:rgb(150,150,150)" <%}%> ><%=msg%></span> </p>';
+
+  const isSystemMsg = from == null;
 
   //ejs is doing html escape
   const resultingElement = ejs.compile(msgTemplate)({
-    from: from,
+    from: isSystemMsg ? "system" : from,
     self: from == accountName,
+    system: isSystemMsg,
     msg: msg,
   });
-  chatHistoryElement.insertAdjacentHTML("beforeend", resultingElement);
   chatSession.chatHistory += resultingElement; //may be just rerender all messages?
-  chatHistoryElement.scrollTo(0, chatHistoryElement.scrollHeight);
+  if (chatSession == currentChatSession) {
+    chatHistoryElement.insertAdjacentHTML("beforeend", resultingElement);
+    chatHistoryElement.scrollTo(0, chatHistoryElement.scrollHeight);
+  }
   console.log(resultingElement);
 }
