@@ -108,6 +108,28 @@
             </div>
         </div>
     </div>
+
+    <script id="contact-list-element-ejs-template" type="text/template">
+        <div class="dropdown-content-row" <%if (emptyPlaceholder){%>id="empty-placeholder-contact-list-element" <%} else {%> id = "<%=username%>-contact-list-element" <%}%> >
+            <div class="dropdown-content-row-major-col" style="width:60%">
+                <%=username%>
+            </div>
+            <div class="dropdown-content-row-minor-col" style="width:40%">
+                <%if (!emptyPlaceholder){%><button id="<%=username%>-request-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Request chat</button><%}%>
+            </div>
+        </div>
+    </script>
+    <script id="connection-request-list-element-ejs-template" type="text/template">
+        <div class="dropdown-content-row" id="<%=address%>-connection-list-div">
+            <div class="dropdown-content-row-major-col" style="width:60%">
+                <%=username%>
+            </div>
+            <div class="dropdown-content-row-minor-col" style="width:40%">
+                <button id="<%=username%>-respond-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Accept</button>
+            </div>
+        </div>
+    </script>
+
     <script src="./sweetalert2.all.min.js"></script>
     <script src="./crypto-js.min.js" type="text/javascript"> </script>
     <script src="./index.js" type="module"> </script>

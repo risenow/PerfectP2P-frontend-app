@@ -63,9 +63,6 @@ let passwordedPrKey;
 let chatSessionsPerContactAddress = new Map();
 let currentChatSession = null;
 
-const connectionRequestsListElElTemplate =
-  '<div class="dropdown-content-row" id="<%=address%>-connection-list-div"><div class="dropdown-content-row-major-col" style="width:60%"><%=username%></div><div class="dropdown-content-row-minor-col" style="width:40%"><button id="<%=username%>-respond-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Accept</button></div></div>';
-
 async function onRequestTokenGenerated(token, to) {
   console.log(`Request token aquired, offer sent: ${token}`);
 
@@ -159,11 +156,10 @@ async function initChatSession(chatSession, offer = null) {
   };
 
   chatSession.changed = true;
-  //this.peerConnection
+
   let isOfferSide = chatSession.answerAddr == chatSession.oppositeAddr;
   let peerConnection = chatSession.peerConnection;
 
-  //this.dataChannel.onmessage = async function (msg) {
   const dcOnMessage = async function (msg) {
     console.log("got message: " + msg.data);
 
@@ -278,6 +274,10 @@ async function selectChatWith(address) {
 }
 
 function addConnectionRequestToElementList(nickname, address) {
+  const connectionRequestsListElElTemplate = document.querySelector(
+    "#connection-request-list-element-ejs-template"
+  ).innerHTML;
+
   showConnectionRequestsButton.classList.add("new-notification");
 
   connectionRequestsListElement.insertAdjacentHTML(
@@ -343,9 +343,12 @@ async function initializeSignalingHandlers() {
   });
 }
 
-const contactsListElElTemplate =
-  '<div class="dropdown-content-row" <%if (emptyPlaceholder){%>id="empty-placeholder-contact-list-element" <%} else {%> id = "<%=username%>-contact-list-element" <%}%> ><div class="dropdown-content-row-major-col" style="width:60%"><%=username%></div><div class="dropdown-content-row-minor-col" style="width:40%"><%if (!emptyPlaceholder){%><button id="<%=username%>-request-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Request chat</button><%}%></div></div>';
 function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
+  const contactsListElElTemplate = document.querySelector(
+    "#contact-list-element-ejs-template"
+  ).innerHTML;
+  //'<div class="dropdown-content-row" <%if (emptyPlaceholder){%>id="empty-placeholder-contact-list-element" <%} else {%> id = "<%=username%>-contact-list-element" <%}%> ><div class="dropdown-content-row-major-col" style="width:60%"><%=username%></div><div class="dropdown-content-row-minor-col" style="width:40%"><%if (!emptyPlaceholder){%><button id="<%=username%>-request-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Request chat</button><%}%></div></div>';
+
   //contact
   contactsListElement.insertAdjacentHTML(
     "beforeend",
