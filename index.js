@@ -30,7 +30,10 @@ const addContactButtonElement = document.getElementById("add-contact-button");
 const chatHistoryElement = document.getElementById("chat-history");
 const msgInputElement = document.getElementById("chat-input");
 const msgSendButtonElement = document.getElementById("chat-send-message");
-const chatLabelElement = document.getElementById("chat-label");
+const chatLabelElement = document.getElementById("chat-selected-title");
+const chatSelectListElement = document.getElementById("chat-select-list");
+const openChatSelectListElemet = document.getElementById("chat-select-button");
+const chatSelectArrow = document.getElementById("chat-select-arrow");
 
 //events
 connectButtonElement.onclick = connectMetamask;
@@ -40,10 +43,15 @@ proceedSignupButtonElement.onclick = signUp;
 downloadKeysButtonElement.onclick = downloadKeys;
 showContactsButton.onclick = showContactsList;
 addContactButtonElement.onclick = onAddContact;
+openChatSelectListElemet.onclick = showChatSelectList;
 msgSendButtonElement.onclick = function () {
   sendMsg(currentChatSession);
 };
 //msgInputElement.onkeypress somehow deprecated
+document.addEventListener("keypress", function (event) {
+  if (!event.altKey && !event.shiftKey && !event.ctrlKey)
+    msgInputElement.focus({ focusVisible: true });
+});
 msgInputElement.addEventListener("keypress", function (event) {
   if (event.key == "Enter") {
     sendMsg(currentChatSession);
@@ -65,8 +73,6 @@ document.onclick = function (event) {
     connectionRequestsListElement.style.display = "none";
   }
 };
-
-//state(to merge with states section at the bottom)/refactor
 
 //state
 let contactsAddresses = [];
@@ -139,7 +145,6 @@ function makePeerConnection(chatSession, isOfferSide) {
         );
       }
     }
-    //handleicecandidate(lasticecandidate);
   };
 
   peerConnection.onconnectionstatechange = function (event) {
@@ -169,7 +174,7 @@ function makePeerConnection(chatSession, isOfferSide) {
         break;
     }
   };
-  //peerConnection.oniceconnectionstatechange = handleiceconnectionstatechange;
+  //peerConnection.oniceconnectionstatechange = ;
 
   return peerConnection;
 }
@@ -308,6 +313,7 @@ async function selectChatWith(address) {
     "afterbegin",
     currentChatSession.chatHistory
   );
+  chatHistoryElement.scrollTo(0, chatHistoryElement.scrollHeight);
 
   const contract = await getContract();
   const name = await contract.getParticipantNameByAddress(address);
@@ -380,8 +386,6 @@ async function initializeSignalingHandlers() {
     await chatSession.peerConnection.setRemoteDescription(answerDesc);
 
     selectChatWith(chatSession.oppositeAddr);
-    //const
-    //addConnectionRequestToElementList(name, address);
   });
 }
 
@@ -389,7 +393,6 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
   const contactsListElElTemplate = document.querySelector(
     "#contact-list-element-ejs-template"
   ).innerHTML;
-  //'<div class="dropdown-content-row" <%if (emptyPlaceholder){%>id="empty-placeholder-contact-list-element" <%} else {%> id = "<%=username%>-contact-list-element" <%}%> ><div class="dropdown-content-row-major-col" style="width:60%"><%=username%></div><div class="dropdown-content-row-minor-col" style="width:40%"><%if (!emptyPlaceholder){%><button id="<%=username%>-request-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Request chat</button><%}%></div></div>';
 
   //contact
   contactsListElement.insertAdjacentHTML(
@@ -404,6 +407,36 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
   document.getElementById(nickname + "-request-button").onclick = function () {
     requestConnectionTo(addr);
   };
+}
+
+function addChatToElementList(nickname, address) {
+  const chatListElElTemplate = document.querySelector(
+    "#chat-list-element-ejs-template"
+  ).innerHTML;
+
+  chatSelectListElement.insertAdjacentHTML(
+    "beforeend",
+    ejs.compile(chatListElElTemplate)({
+      username: escapeHtml(nickname),
+      address: address,
+    })
+  );
+
+  const chatListElement = document.getElementById(address + "-chat-list-div");
+  chatListElement.onclick = function () {
+    selectChatWith(address);
+    chatListElement.classList.remove("new-notification");
+    showChatSelectList();
+  };
+}
+async function addChatToElementListByAddressIfNotExists(address) {
+  const alreadyExists = document.getElementById(address + "-chat-list-div");
+  if (alreadyExists) return;
+
+  const contract = await getContract();
+
+  const nickname = await contract.getParticipantNameByAddress(address);
+  addChatToElementList(nickname, address);
 }
 
 function onMetamaskConnect() {
@@ -506,7 +539,7 @@ function showWindowElement(hiddenElement) {
 overlayElement.ontransitionend;
 function hideWindowElement(element) {
   element.style.opacity = 0;
-  // If you want to remove it from the page after the fadeout
+
   element.ontransitionend = function () {
     element.style.display = "none";
   };
@@ -686,21 +719,21 @@ async function answerConnectionRequest(address) {
   );
   console.log("offer: " + offer);
   let chatSession = new ChatSession(address, accountAddress, offer);
-  await initChatSession(chatSession, offer); //chatSession.init();
+  await initChatSession(chatSession, offer);
   chatSessionsPerContactAddress.set(address, chatSession);
 
-  //currentChatSession = chatSession; // to make it selectable from the menu
+  addChatToElementListByAddressIfNotExists(address);
   selectChatWith(address);
-  //const contract = await getContract();
+  logChat(null, "Answering connection request...", chatSession);
 }
 async function requestConnectionTo(address) {
   let chatSession = new ChatSession(accountAddress, address);
-  await initChatSession(chatSession); //chatSession.init();
+  await initChatSession(chatSession);
   chatSessionsPerContactAddress.set(address, chatSession);
 
+  addChatToElementListByAddressIfNotExists(address);
   selectChatWith(address);
-  //currentChatSession = chatSession; //make it selectable from the menu
-  //const contract = await getContract();
+  logChat(null, "Requested connection...", chatSession);
 
   console.log(`requested connection to ${address}`);
 }
@@ -727,21 +760,42 @@ function showConnectionRequestsList() {
   showConnectionRequestsButton.classList.remove("new-notification");
 
   const el = connectionRequestsListElement;
+
   if (el.childNodes.length == 0) {
     el.style.display = "none";
     return;
   }
 
-  console.log(`Was ${el.style.display}`);
   el.style.display = el.style.display == "block" ? "none" : "block";
-  console.log(`Now ${el.style.display}`);
 }
 function showContactsList() {
   if (!onShowActiveChatLists()) return;
 
   contactsListElement.style.display =
     contactsListElement.style.display == "block" ? "none" : "block";
-  const el = document.getElementById("add-contact-button");
+}
+
+function showChatSelectList() {
+  console.log("chats displayed");
+  if (!onShowActiveChatLists()) return;
+  console.log("chats displayed");
+  if (chatSelectListElement.childNodes.length == 0) {
+    return;
+  }
+
+  const el = chatSelectListElement;
+  const arrow = chatSelectArrow;
+  arrow.classList.remove("arrow-new-notification");
+  if (el.style.display == "block") {
+    arrow.classList.remove("chat-select-arrow-up");
+    arrow.classList.add("chat-select-arrow-down");
+    el.style.display = "none";
+  } else {
+    arrow.classList.add("chat-select-arrow-up");
+    arrow.classList.remove("chat-select-arrow-down");
+    el.style.display = "block";
+  }
+  console.log("chats displayed");
 }
 
 async function onAddContact() {
@@ -792,6 +846,15 @@ async function onAddContact() {
   addContactInner(contactAddress, true);
   addContactToElementList(contactName, contactAddress);
 }
+function onChatSessionMsg(chatSession) {
+  if (chatSession != currentChatSession) {
+    chatSelectArrow.classList.add("arrow-new-notification");
+
+    document
+      .getElementById(chatSession.oppositeAddr + "-chat-list-div")
+      .classList.add("new-notification");
+  }
+}
 function sendMsg(chatSession) {
   if (accountName == null) {
     Swal.fire({
@@ -828,6 +891,7 @@ function logChat(from, msg, chatSession) {
     msg: msg,
   });
   chatSession.chatHistory += resultingElement; //may be just rerender all messages?
+  onChatSessionMsg(chatSession);
   if (chatSession == currentChatSession) {
     chatHistoryElement.insertAdjacentHTML("beforeend", resultingElement);
     chatHistoryElement.scrollTo(0, chatHistoryElement.scrollHeight);
