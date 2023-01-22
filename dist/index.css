@@ -46,7 +46,7 @@ body {
 
 .dropdown-button {
   width: 100%;
-  height: 150px;
+  height: 30vh;
   box-shadow: inset 0 0 1px rgb(39, 38, 38, 0.8);
   font-size: larger;
   color: rgb(45, 43, 43);
@@ -78,7 +78,7 @@ body {
   overflow-x: hidden;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
   background-color: #ffffffff;
-  z-index: 9;
+  z-index: 500;
 
   top: 0%;
   left: 100%;
@@ -132,18 +132,6 @@ body {
   align-items: center;
 
   justify-content: center;
-}
-
-.add-contact-button {
-
-
-  /*background-color: rgb(80, 200, 120);
-    border-width: 1px;
-    border-radius:10px;
-    color:aliceblue;
-    position: relative;
-    width:100%;*/
-
 }
 
 .dropdown-content-row-minor-col button {
@@ -247,15 +235,15 @@ body {
 }
 
 .registration-popup {
+  box-sizing: border-box;
   display: none;
   position: absolute;
   background-color: #ffffff;
   top: 10%;
   left: 34%;
   width: 35%;
-  height: 65%;
+  min-height: 32vw;
   box-shadow: 0px 2px 4px 2px rgba(0, 0, 0, 0.1);
-  padding: 0%;
   color: rgb(113, 107, 97);
 
   font-size: small;
@@ -265,6 +253,7 @@ body {
 
   transition: opacity 0.4s;
   opacity: 0;
+  border-radius: 20px;
 }
 
 .center {
@@ -348,8 +337,129 @@ body {
   display: none;
 }
 
+.chat-select-button {
+  width: 100%;
+  height: 100%;
+  /*box-shadow: inset 0 0 1px rgb(39, 38, 38, 0.8);*/
+  font-size: larger;
+  color: rgb(45, 43, 43);
+  cursor: pointer;
+  border-width: none;
+  border-color: rgb(213, 213, 213);
+  background-color: rgb(255, 255, 255);
+  /*may its better with default one*/
+  border: none;
+  z-index: 0;
+}
 
+.chat-select-button:enabled:hover {
+  background-color: #dcdcdc;
+}
 
+.chat-select-container {
+  display: block;
+  position: relative;
+  width: 40%;
+  z-index: 0;
+
+}
+
+.chat-select-options-content {
+  display: none;
+  position: absolute;
+  width: 100%;
+  max-height: 300px;
+  /*height:400px;*/
+  overflow-x: hidden;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+  background-color: #ffffffff;
+  z-index: 0;
+
+  top: 100%;
+  left: 0%;
+  /*border:1px solid black;*/
+
+}
+
+/*.dropdown:hover .dropdown-content {
+  display: block;
+}*/
+.chat-select-option-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 100%;
+  color: #191919;
+  padding: 14px;
+  text-decoration: none;
+  cursor: default;
+  height: 14px;
+  font-size: large;
+  opacity: 1;
+  z-index: 0;
+  cursor: pointer;
+  box-shadow: inset 0 0 1px rgb(39, 38, 38, 0.8);
+
+}
+
+.chat-select-option-row:hover{
+  background-color: #b9b9b9;
+}
+.chat-select-option-row.new-notification {
+  /*background-color: rgb(255, 172, 172) ;*/
+  background-color: rgb(255, 230, 157) ;
+}
+.chat-select-option-row.new-notification:hover{
+  background-color: #b9b9b9;
+}
+
+.chat-select-arrow-up {
+  margin-top: 5%;
+  width: 30%;
+  padding-bottom: 21.27%; /* width / 1.41 */
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-select-arrow-up:before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #3b3b3b;
+  transform-origin: 0% 100%;
+  transform: rotate(45deg);
+}
+
+.chat-select-arrow-down {
+  margin-top: 5%;
+  width: 30%;
+  padding-bottom: 21.27%; /* width / 1.41 */
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-select-arrow-down:before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #3b3b3b;
+  transform-origin: 0% 0%;
+  transform: rotate(-45deg);
+}
+
+.chat-select-arrow-down.arrow-new-notification:before {
+  /*background-color: rgb(255, 96, 96) ;*/
+  background-color: rgb(249, 87, 0) ;
+}
+.chat-select-arrow-up.arrow-new-notification:before {
+  background-color: rgb(255, 230, 157) ;
+}
 .chat-container {
 
   position: relative;
@@ -392,6 +502,7 @@ body {
 .new-notification {
   background-color: rgb(255, 230, 157) ;
 }
+
 .chat-input:focus {
   border-width: 0px;
   border: none;

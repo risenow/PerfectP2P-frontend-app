@@ -134,18 +134,6 @@ body {
   justify-content: center;
 }
 
-.add-contact-button {
-
-
-  /*background-color: rgb(80, 200, 120);
-    border-width: 1px;
-    border-radius:10px;
-    color:aliceblue;
-    position: relative;
-    width:100%;*/
-
-}
-
 .dropdown-content-row-minor-col button {
 
   border-width: 1px;
@@ -254,9 +242,8 @@ body {
   top: 10%;
   left: 34%;
   width: 35%;
-  min-height: 65%;
+  min-height: 32vw;
   box-shadow: 0px 2px 4px 2px rgba(0, 0, 0, 0.1);
-  padding: 10%;
   color: rgb(113, 107, 97);
 
   font-size: small;

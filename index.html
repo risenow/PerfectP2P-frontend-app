@@ -22,14 +22,22 @@
         <!--<label class="registration-el" for="pwd">Password(for key encryption)</label>!-->
         <p> <input class="registration-el registration-input" type="password" name="pwd" id="password-input"
                 placeholder="Password"></p>
-        <button class="registration-el download-button" id="proceed-signup">Proceed</button>
-        <div style="display:none">
-            <div class="registration-el" style="color:rgb(255, 72, 72)">You
-                should download encrypted keys,otherwise you will no be able
-                to sign in next time!</div>
-            <button class="registration-el registration-input
-                    registration-button">Download keys</button>
+        <button class="registration-el download-button" style="height:2vw;" id="proceed-signup">Proceed</button>
+    </div>
+    <div id="signin-window" class="registration-popup">
+        <!--<div class="registration-el" style="color:rgb(0, 0, 0); margin-top: 5%; font-size: medium;">You don't have an
+                account yet.</div> !-->
+        <div class="center">
+            <h1 id="signin-greetings" style="color:rgb(36, 36, 36); margin-top:
+                    10%;">Sign In</h1>
         </div>
+
+        <!--<label class="registration-el" for="pwd">Password(for key encryption)</label>!-->
+        <p> <input class="registration-el registration-input" style="display:block;" type="password" name="pwd" id="signin-password-input"
+                placeholder="Password"></p>
+        <label for="signin-keys-file" id="signin-keys-file-label" class="registration-el registration-input" style="display: block;cursor: pointer;">Upload Keys</label>
+        <input style="display:none;" id="signin-keys-file" type="file" />
+        <button class="registration-el download-button" style="height:2vw;" id="proceed-signin">Sign In!</button>
     </div>
     <div id="main-page">
         <div class='row' style="height:100%;min-height: 100%;">
@@ -144,9 +152,9 @@
         </div>
     </script>
 
-    <script src="./sweetalert2.all.min.js"></script>
-    <script src="./crypto-js.min.js" type="text/javascript"> </script>
-    <script src="./index.js" type="module"> </script>
+    <script src="sweetalert2.all.min.js"></script>
+    <script src="crypto-js.min.js" type="text/javascript"> </script>
+    <script src="index.js" type="module"> </script>
 </body>
 
 </html>

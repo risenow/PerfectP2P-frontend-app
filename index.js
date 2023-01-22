@@ -10,8 +10,9 @@ const bodyElement = document.body;
 //windows
 const overlayElement = document.getElementById("overlay");
 const registrationPopupWindow = document.getElementById("registration-window");
+const signInPopupWindow = document.getElementById("signin-window");
 
-const popupWindows = [registrationPopupWindow];
+const popupWindows = [registrationPopupWindow]; //signinPopup should not be closed by clicking on background
 
 //elements
 const connectButtonElement = document.getElementById("connectButton");
@@ -34,6 +35,11 @@ const chatLabelElement = document.getElementById("chat-selected-title");
 const chatSelectListElement = document.getElementById("chat-select-list");
 const openChatSelectListElemet = document.getElementById("chat-select-button");
 const chatSelectArrow = document.getElementById("chat-select-arrow");
+const singinKeysFileElement = document.getElementById("signin-keys-file");
+const signinPasswordInputElement = document.getElementById(
+  "signin-password-input"
+);
+const signinProceedButtonElement = document.getElementById("proceed-signin");
 
 //events
 connectButtonElement.onclick = connectMetamask;
@@ -44,6 +50,8 @@ downloadKeysButtonElement.onclick = downloadKeys;
 showContactsButton.onclick = showContactsList;
 addContactButtonElement.onclick = onAddContact;
 openChatSelectListElemet.onclick = showChatSelectList;
+singinKeysFileElement.onchange = readKeys;
+signinProceedButtonElement.onclick = signIn;
 msgSendButtonElement.onclick = function () {
   sendMsg(currentChatSession);
 };
@@ -80,8 +88,11 @@ let accountName = null;
 let accountAddress = null;
 let signalingMediumContract;
 let accounts;
-let encKeys;
+let encKeys = null;
 let passwordedPrKey;
+let passwordedPrKeyPromise = null;
+const correctDecryptionSignature = "correct output";
+
 let chatSessionsPerContactAddress = new Map();
 let currentChatSession = null;
 
@@ -600,7 +611,7 @@ function downloadKeys() {
   downloadKeysButtonElement.ontransitionend = () =>
     (downloadKeysButtonElement.style.display = "none");
 }
-function signIn() {}
+
 function openRegistrationMenu() {
   overlayElement.style.display = "block";
 
@@ -615,7 +626,7 @@ async function signUp() {
 
   console.log(encKeys.getPrivate("hex").toString());
   passwordedPrKey = CryptoJS.AES.encrypt(
-    encKeys.getPrivate("hex").toString(),
+    correctDecryptionSignature + encKeys.getPrivate("hex").toString(), //couple with signature so that we can know that password used for decryption was correct
     pwdEl.value
   ).toString();
 
@@ -672,6 +683,18 @@ async function signUp() {
   //let bytes = CryptoJS.AES.decrypt(passwordedPrKey, pwdEl.value);
   //console.log(bytes.toString(CryptoJS.enc.Utf8));
 }
+async function readKeys(event) {
+  const file = event.target.files.item(0);
+  passwordedPrKeyPromise = file.text();
+
+  document.getElementById("signin-keys-file-label").textContent = file.name;
+}
+function setSignedInState(name) {
+  signinButtonElement.textContent = name;
+  signinButtonElement.disabled = true;
+  accountName = name;
+  encKeys = encKeys; //enc keys should be initialized for correct sign in
+}
 async function trySignIn() {
   const contract = await getContract();
 
@@ -682,13 +705,63 @@ async function trySignIn() {
       accounts[0]
     );
 
-    signinButtonElement.textContent = participantName;
-    signinButtonElement.disabled = true;
-    accountName = participantName;
+    if (encKeys == null) {
+      const greetingEl = document.getElementById("signin-greetings");
+      greetingEl.textContent = "Welcome, " + participantName + "!";
+      overlayElement.style.display = "block";
+      showWindowElement(signInPopupWindow); //only do this if key uninitialized
+
+      return true;
+    }
+
+    setSignedInState(participantName);
+
     return true;
   }
 
   return false;
+}
+async function signIn() {
+  const contract = await getContract();
+
+  const participantName = await contract.getParticipantNameByAddress(
+    accounts[0]
+  );
+
+  if (passwordedPrKeyPromise == null) {
+    Swal.fire({
+      title: "Error!",
+      text: "You should first choose .keys file!",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+
+    return;
+  }
+
+  const password = signinPasswordInputElement.value;
+
+  passwordedPrKey = await passwordedPrKeyPromise;
+  const bytes = CryptoJS.AES.decrypt(passwordedPrKey, password);
+  let plainPrKey = bytes.toString(CryptoJS.enc.Utf8);
+  if (!plainPrKey.includes(correctDecryptionSignature)) {
+    Swal.fire({
+      title: "Error!",
+      text: "Wrong password",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+
+    return;
+  }
+  plainPrKey = plainPrKey.substring(correctDecryptionSignature.length); //remove signature
+  let ec = new elliptic.ec("secp256k1");
+  encKeys = ec.keyFromPrivate(plainPrKey, "hex");
+
+  setSignedInState(participantName);
+
+  hideWindowElement(signInPopupWindow);
+  overlayElement.style.display = "none";
 }
 async function onTrySignIn() {
   /*var ciphertext = CryptoJS.AES.encrypt(
@@ -697,10 +770,15 @@ async function onTrySignIn() {
   ).toString();
 
   // Decrypt
-  var bytes = CryptoJS.AES.decrypt(ciphertext, "shared1");
-  var decryptedData = bytes.toString(CryptoJS.enc.Utf8);
+  try {
+    var bytes = CryptoJS.AES.decrypt(ciphertext, "shared1");
+    console.log(bytes);
+    var decryptedData = bytes.toString(CryptoJS.enc.Utf8);
 
-  console.log(decryptedData);*/
+    console.log(decryptedData);
+  } catch (e) {
+    console.log(e);
+  }*/
 
   if (!(await trySignIn())) {
     openRegistrationMenu();
@@ -742,6 +820,15 @@ function onShowActiveChatLists() {
     Swal.fire({
       title: "Error!",
       text: "You should first connect to Metamask!",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+    return false;
+  }
+  if (accountName == null) {
+    Swal.fire({
+      title: "Error!",
+      text: "You should sign in!",
       icon: "error",
       confirmButtonText: "Cool",
     });

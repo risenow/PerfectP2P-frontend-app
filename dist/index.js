@@ -10,8 +10,9 @@ const bodyElement = document.body;
 //windows
 const overlayElement = document.getElementById("overlay");
 const registrationPopupWindow = document.getElementById("registration-window");
+const signInPopupWindow = document.getElementById("signin-window");
 
-const popupWindows = [registrationPopupWindow];
+const popupWindows = [registrationPopupWindow, signInPopupWindow];
 
 //elements
 const connectButtonElement = document.getElementById("connectButton");
@@ -30,7 +31,15 @@ const addContactButtonElement = document.getElementById("add-contact-button");
 const chatHistoryElement = document.getElementById("chat-history");
 const msgInputElement = document.getElementById("chat-input");
 const msgSendButtonElement = document.getElementById("chat-send-message");
-const chatLabelElement = document.getElementById("chat-label");
+const chatLabelElement = document.getElementById("chat-selected-title");
+const chatSelectListElement = document.getElementById("chat-select-list");
+const openChatSelectListElemet = document.getElementById("chat-select-button");
+const chatSelectArrow = document.getElementById("chat-select-arrow");
+const singinKeysFileElement = document.getElementById("signin-keys-file");
+const signinPasswordInputElement = document.getElementById(
+  "signin-password-input"
+);
+const signinProceedButtonElement = document.getElementById("proceed-signin");
 
 //events
 connectButtonElement.onclick = connectMetamask;
@@ -40,17 +49,38 @@ proceedSignupButtonElement.onclick = signUp;
 downloadKeysButtonElement.onclick = downloadKeys;
 showContactsButton.onclick = showContactsList;
 addContactButtonElement.onclick = onAddContact;
+openChatSelectListElemet.onclick = showChatSelectList;
+singinKeysFileElement.onchange = readKeys;
+signinProceedButtonElement.onclick = signIn;
 msgSendButtonElement.onclick = function () {
   sendMsg(currentChatSession);
 };
 //msgInputElement.onkeypress somehow deprecated
+document.addEventListener("keypress", function (event) {
+  if (!event.altKey && !event.shiftKey && !event.ctrlKey)
+    msgInputElement.focus({ focusVisible: true });
+});
 msgInputElement.addEventListener("keypress", function (event) {
   if (event.key == "Enter") {
     sendMsg(currentChatSession);
   }
 });
-
-//state(to merge with states section at the bottom)/refactor
+document.onclick = function (event) {
+  if (
+    !contactsListElement.contains(event.target) &&
+    !showContactsButton.contains(event.target)
+  ) {
+    console.log("close contacts!");
+    contactsListElement.style.display = "none";
+  }
+  if (
+    !connectionRequestsListElement.contains(event.target) &&
+    !showConnectionRequestsButton.contains(event.target)
+  ) {
+    console.log("close conn reqs!");
+    connectionRequestsListElement.style.display = "none";
+  }
+};
 
 //state
 let contactsAddresses = [];
@@ -58,13 +88,13 @@ let accountName = null;
 let accountAddress = null;
 let signalingMediumContract;
 let accounts;
-let encKeys;
+let encKeys = null;
 let passwordedPrKey;
+let passwordedPrKeyPromise = null;
+const correctDecryptionSignature = "correct output";
+
 let chatSessionsPerContactAddress = new Map();
 let currentChatSession = null;
-
-const connectionRequestsListElElTemplate =
-  '<div class="dropdown-content-row" id="<%=address%>-connection-list-div"><div class="dropdown-content-row-major-col" style="width:60%"><%=username%></div><div class="dropdown-content-row-minor-col" style="width:40%"><button id="<%=username%>-respond-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Accept</button></div></div>';
 
 async function onRequestTokenGenerated(token, to) {
   console.log(`Request token aquired, offer sent: ${token}`);
@@ -126,11 +156,36 @@ function makePeerConnection(chatSession, isOfferSide) {
         );
       }
     }
-    //handleicecandidate(lasticecandidate);
   };
 
-  //peerConnection.onconnectionstatechange = handleconnectionstatechange;
-  //peerConnection.oniceconnectionstatechange = handleiceconnectionstatechange;
+  peerConnection.onconnectionstatechange = function (event) {
+    switch (peerConnection.connectionState) {
+      case "new":
+      case "checking":
+        logChat(null, "Connecting...", chatSession);
+        break;
+      case "connecting":
+        logChat(null, "Connecting...", chatSession);
+        break;
+      case "connected":
+        logChat(null, "Connection established!", chatSession);
+        break;
+      case "disconnected":
+        logChat(null, "Oops, disconnected!", chatSession);
+        break;
+      case "closed":
+        logChat(null, "Oops, disconnected!", chatSession);
+        break;
+      case "failed":
+        logChat(null, "Connection failed!", chatSession);
+        break;
+      default:
+        console.log(peerConnection.connectionState);
+        logChat(null, "Looks like something gone wrong!", chatSession);
+        break;
+    }
+  };
+  //peerConnection.oniceconnectionstatechange = ;
 
   return peerConnection;
 }
@@ -159,11 +214,10 @@ async function initChatSession(chatSession, offer = null) {
   };
 
   chatSession.changed = true;
-  //this.peerConnection
+
   let isOfferSide = chatSession.answerAddr == chatSession.oppositeAddr;
   let peerConnection = chatSession.peerConnection;
 
-  //this.dataChannel.onmessage = async function (msg) {
   const dcOnMessage = async function (msg) {
     console.log("got message: " + msg.data);
 
@@ -270,6 +324,7 @@ async function selectChatWith(address) {
     "afterbegin",
     currentChatSession.chatHistory
   );
+  chatHistoryElement.scrollTo(0, chatHistoryElement.scrollHeight);
 
   const contract = await getContract();
   const name = await contract.getParticipantNameByAddress(address);
@@ -278,6 +333,10 @@ async function selectChatWith(address) {
 }
 
 function addConnectionRequestToElementList(nickname, address) {
+  const connectionRequestsListElElTemplate = document.querySelector(
+    "#connection-request-list-element-ejs-template"
+  ).innerHTML;
+
   showConnectionRequestsButton.classList.add("new-notification");
 
   connectionRequestsListElement.insertAdjacentHTML(
@@ -338,14 +397,14 @@ async function initializeSignalingHandlers() {
     await chatSession.peerConnection.setRemoteDescription(answerDesc);
 
     selectChatWith(chatSession.oppositeAddr);
-    //const
-    //addConnectionRequestToElementList(name, address);
   });
 }
 
-const contactsListElElTemplate =
-  '<div class="dropdown-content-row" <%if (emptyPlaceholder){%>id="empty-placeholder-contact-list-element" <%} else {%> id = "<%=username%>-contact-list-element" <%}%> ><div class="dropdown-content-row-major-col" style="width:60%"><%=username%></div><div class="dropdown-content-row-minor-col" style="width:40%"><%if (!emptyPlaceholder){%><button id="<%=username%>-request-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Request chat</button><%}%></div></div>';
 function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
+  const contactsListElElTemplate = document.querySelector(
+    "#contact-list-element-ejs-template"
+  ).innerHTML;
+
   //contact
   contactsListElement.insertAdjacentHTML(
     "beforeend",
@@ -359,6 +418,36 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
   document.getElementById(nickname + "-request-button").onclick = function () {
     requestConnectionTo(addr);
   };
+}
+
+function addChatToElementList(nickname, address) {
+  const chatListElElTemplate = document.querySelector(
+    "#chat-list-element-ejs-template"
+  ).innerHTML;
+
+  chatSelectListElement.insertAdjacentHTML(
+    "beforeend",
+    ejs.compile(chatListElElTemplate)({
+      username: escapeHtml(nickname),
+      address: address,
+    })
+  );
+
+  const chatListElement = document.getElementById(address + "-chat-list-div");
+  chatListElement.onclick = function () {
+    selectChatWith(address);
+    chatListElement.classList.remove("new-notification");
+    showChatSelectList();
+  };
+}
+async function addChatToElementListByAddressIfNotExists(address) {
+  const alreadyExists = document.getElementById(address + "-chat-list-div");
+  if (alreadyExists) return;
+
+  const contract = await getContract();
+
+  const nickname = await contract.getParticipantNameByAddress(address);
+  addChatToElementList(nickname, address);
 }
 
 function onMetamaskConnect() {
@@ -461,7 +550,7 @@ function showWindowElement(hiddenElement) {
 overlayElement.ontransitionend;
 function hideWindowElement(element) {
   element.style.opacity = 0;
-  // If you want to remove it from the page after the fadeout
+
   element.ontransitionend = function () {
     element.style.display = "none";
   };
@@ -522,7 +611,7 @@ function downloadKeys() {
   downloadKeysButtonElement.ontransitionend = () =>
     (downloadKeysButtonElement.style.display = "none");
 }
-function signIn() {}
+
 function openRegistrationMenu() {
   overlayElement.style.display = "block";
 
@@ -537,7 +626,7 @@ async function signUp() {
 
   console.log(encKeys.getPrivate("hex").toString());
   passwordedPrKey = CryptoJS.AES.encrypt(
-    encKeys.getPrivate("hex").toString(),
+    correctDecryptionSignature + encKeys.getPrivate("hex").toString(), //couple with signature so that we can know that password used for decryption was correct
     pwdEl.value
   ).toString();
 
@@ -594,6 +683,18 @@ async function signUp() {
   //let bytes = CryptoJS.AES.decrypt(passwordedPrKey, pwdEl.value);
   //console.log(bytes.toString(CryptoJS.enc.Utf8));
 }
+async function readKeys(event) {
+  const file = event.target.files.item(0);
+  passwordedPrKeyPromise = file.text();
+
+  document.getElementById("signin-keys-file-label").textContent = file.name;
+}
+function setSignedInState(name) {
+  signinButtonElement.textContent = name;
+  signinButtonElement.disabled = true;
+  accountName = name;
+  encKeys = encKeys; //enc keys should be initialized for correct sign in
+}
 async function trySignIn() {
   const contract = await getContract();
 
@@ -604,13 +705,63 @@ async function trySignIn() {
       accounts[0]
     );
 
-    signinButtonElement.textContent = participantName;
-    signinButtonElement.disabled = true;
-    accountName = participantName;
+    if (encKeys == null) {
+      const greetingEl = document.getElementById("signin-greetings");
+      greetingEl.textContent = "Welcome, " + participantName + "!";
+      overlayElement.style.display = "block";
+      showWindowElement(signInPopupWindow); //only do this if key uninitialized
+
+      return true;
+    }
+
+    setSignedInState(participantName);
+
     return true;
   }
 
   return false;
+}
+async function signIn() {
+  const contract = await getContract();
+
+  const participantName = await contract.getParticipantNameByAddress(
+    accounts[0]
+  );
+
+  if (passwordedPrKeyPromise == null) {
+    Swal.fire({
+      title: "Error!",
+      text: "You should first choose .keys file!",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+
+    return;
+  }
+
+  const password = signinPasswordInputElement.value;
+
+  passwordedPrKey = await passwordedPrKeyPromise;
+  const bytes = CryptoJS.AES.decrypt(passwordedPrKey, password);
+  let plainPrKey = bytes.toString(CryptoJS.enc.Utf8);
+  if (!plainPrKey.includes(correctDecryptionSignature)) {
+    Swal.fire({
+      title: "Error!",
+      text: "Wrong password",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+
+    return;
+  }
+  plainPrKey = plainPrKey.substring(correctDecryptionSignature.length); //remove signature
+  let ec = new elliptic.ec("secp256k1");
+  encKeys = ec.keyFromPrivate(plainPrKey, "hex");
+
+  setSignedInState(participantName);
+
+  hideWindowElement(signInPopupWindow);
+  overlayElement.style.display = "none";
 }
 async function onTrySignIn() {
   /*var ciphertext = CryptoJS.AES.encrypt(
@@ -619,10 +770,15 @@ async function onTrySignIn() {
   ).toString();
 
   // Decrypt
-  var bytes = CryptoJS.AES.decrypt(ciphertext, "shared1");
-  var decryptedData = bytes.toString(CryptoJS.enc.Utf8);
+  try {
+    var bytes = CryptoJS.AES.decrypt(ciphertext, "shared1");
+    console.log(bytes);
+    var decryptedData = bytes.toString(CryptoJS.enc.Utf8);
 
-  console.log(decryptedData);*/
+    console.log(decryptedData);
+  } catch (e) {
+    console.log(e);
+  }*/
 
   if (!(await trySignIn())) {
     openRegistrationMenu();
@@ -641,19 +797,21 @@ async function answerConnectionRequest(address) {
   );
   console.log("offer: " + offer);
   let chatSession = new ChatSession(address, accountAddress, offer);
-  await initChatSession(chatSession, offer); //chatSession.init();
+  await initChatSession(chatSession, offer);
   chatSessionsPerContactAddress.set(address, chatSession);
 
-  currentChatSession = chatSession; // to make it selectable from the menu
-  //const contract = await getContract();
+  addChatToElementListByAddressIfNotExists(address);
+  selectChatWith(address);
+  logChat(null, "Answering connection request...", chatSession);
 }
 async function requestConnectionTo(address) {
   let chatSession = new ChatSession(accountAddress, address);
-  await initChatSession(chatSession); //chatSession.init();
+  await initChatSession(chatSession);
   chatSessionsPerContactAddress.set(address, chatSession);
 
-  currentChatSession = chatSession; //make it selectable from the menu
-  //const contract = await getContract();
+  addChatToElementListByAddressIfNotExists(address);
+  selectChatWith(address);
+  logChat(null, "Requested connection...", chatSession);
 
   console.log(`requested connection to ${address}`);
 }
@@ -667,30 +825,64 @@ function onShowActiveChatLists() {
     });
     return false;
   }
+  if (accountName == null) {
+    Swal.fire({
+      title: "Error!",
+      text: "You should sign in!",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+    return false;
+  }
 
   return true;
 }
 function showConnectionRequestsList() {
   if (!onShowActiveChatLists()) return;
 
+  if (connectionRequestsListElement.childNodes.length == 0) {
+    return;
+  }
+
   showConnectionRequestsButton.classList.remove("new-notification");
 
   const el = connectionRequestsListElement;
+
   if (el.childNodes.length == 0) {
     el.style.display = "none";
     return;
   }
 
-  console.log(`Was ${el.style.display}`);
   el.style.display = el.style.display == "block" ? "none" : "block";
-  console.log(`Now ${el.style.display}`);
 }
 function showContactsList() {
   if (!onShowActiveChatLists()) return;
 
   contactsListElement.style.display =
     contactsListElement.style.display == "block" ? "none" : "block";
-  const el = document.getElementById("add-contact-button");
+}
+
+function showChatSelectList() {
+  console.log("chats displayed");
+  if (!onShowActiveChatLists()) return;
+  console.log("chats displayed");
+  if (chatSelectListElement.childNodes.length == 0) {
+    return;
+  }
+
+  const el = chatSelectListElement;
+  const arrow = chatSelectArrow;
+  arrow.classList.remove("arrow-new-notification");
+  if (el.style.display == "block") {
+    arrow.classList.remove("chat-select-arrow-up");
+    arrow.classList.add("chat-select-arrow-down");
+    el.style.display = "none";
+  } else {
+    arrow.classList.add("chat-select-arrow-up");
+    arrow.classList.remove("chat-select-arrow-down");
+    el.style.display = "block";
+  }
+  console.log("chats displayed");
 }
 
 async function onAddContact() {
@@ -741,7 +933,26 @@ async function onAddContact() {
   addContactInner(contactAddress, true);
   addContactToElementList(contactName, contactAddress);
 }
+function onChatSessionMsg(chatSession) {
+  if (chatSession != currentChatSession) {
+    chatSelectArrow.classList.add("arrow-new-notification");
+
+    document
+      .getElementById(chatSession.oppositeAddr + "-chat-list-div")
+      .classList.add("new-notification");
+  }
+}
 function sendMsg(chatSession) {
+  if (accountName == null) {
+    Swal.fire({
+      title: "Error!",
+      text: "You need to sign in first!",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+    return;
+  }
+
   const msg = msgInputElement.value;
 
   console.log(JSON.stringify(chatSession));
@@ -754,27 +965,23 @@ function sendMsg(chatSession) {
   msgInputElement.value = "";
 }
 function logChat(from, msg, chatSession) {
-  if (accountName == null) {
-    Swal.fire({
-      title: "Error!",
-      text: "You need to sign in first!",
-      icon: "error",
-      confirmButtonText: "Cool",
-    });
-    return;
-  }
-
   const msgTemplate =
-    '<p > <span style="color:<%if (!self){%>red  <%}else{%> green <%}%>"> <%=from%>:</span> <span><%=msg%></span> </p>';
+    '<p > <span style="color:<%if (system){%>rgb(150,150,150) <%} else if (!self){%>red  <%}else{%> green <%}%>"> <%=from%>:</span> <span <%if (system){%> style="color:rgb(150,150,150)" <%}%> ><%=msg%></span> </p>';
+
+  const isSystemMsg = from == null;
 
   //ejs is doing html escape
   const resultingElement = ejs.compile(msgTemplate)({
-    from: from,
+    from: isSystemMsg ? "system" : from,
     self: from == accountName,
+    system: isSystemMsg,
     msg: msg,
   });
-  chatHistoryElement.insertAdjacentHTML("beforeend", resultingElement);
   chatSession.chatHistory += resultingElement; //may be just rerender all messages?
-  chatHistoryElement.scrollTo(0, chatHistoryElement.scrollHeight);
+  onChatSessionMsg(chatSession);
+  if (chatSession == currentChatSession) {
+    chatHistoryElement.insertAdjacentHTML("beforeend", resultingElement);
+    chatHistoryElement.scrollTo(0, chatHistoryElement.scrollHeight);
+  }
   console.log(resultingElement);
 }
