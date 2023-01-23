@@ -3,8 +3,10 @@ import { ethers } from "./ethers-5.1.esm.min.js";
 import { contractAddress, abi } from "./contract-constants.js";
 import "./elliptic.min.js";
 
-let loggedIn = false;
+const tokenAESIVSize = 64;
+const chatAESIVSize = 128;
 
+let loggedIn = false;
 const bodyElement = document.body;
 
 //windows
@@ -96,30 +98,140 @@ const correctDecryptionSignature = "correct output";
 let chatSessionsPerContactAddress = new Map();
 let currentChatSession = null;
 
+function byteArrayToWordArray(ba) {
+  var wa = [],
+    i;
+  for (i = 0; i < ba.length; i++) {
+    const currIndex = (i / 4) | 0;
+    if (wa.length == currIndex) wa.push(0);
+    wa[(i / 4) | 0] += ba[i] << (24 - 8 * (i % 4));
+  }
+
+  return CryptoJS.lib.WordArray.create(wa, ba.length);
+}
+
+function wordToByteArray(word, length) {
+  var ba = [],
+    i,
+    xFF = 0xff;
+  if (length > 0) ba.push((word >>> 24) & xFF);
+  if (length > 1) ba.push((word >>> 16) & xFF);
+  if (length > 2) ba.push((word >>> 8) & xFF);
+  if (length > 3) ba.push((word >>> 0) & xFF);
+
+  return ba;
+}
+
+function wordArrayToByteArray(wordArray, length) {
+  if (
+    wordArray.hasOwnProperty("sigBytes") &&
+    wordArray.hasOwnProperty("words")
+  ) {
+    length = wordArray.sigBytes;
+    wordArray = wordArray.words;
+  }
+
+  var result = [],
+    bytes,
+    i = 0;
+  while (length > 0) {
+    bytes = wordToByteArray(wordArray[i], Math.min(4, length));
+    length -= bytes.length;
+    result.push(bytes);
+    i++;
+  }
+  return [].concat.apply([], result);
+}
+
+// token is string
+async function encryptTokenTo(to, token) {
+  const contract = await getContract();
+
+  const receiverPublicEncKey = (await contract.getEncryptionKeyByAddress(to))
+    .toString()
+    .substring(2);
+
+  const ec = new elliptic.ec("secp256k1");
+  const sharedKey = encKeys
+    .derive(ec.keyFromPublic(receiverPublicEncKey, "hex").getPublic())
+    .toString(16);
+  const sharedKeyBytes = CryptoJS.enc.Hex.parse(sharedKey);
+
+  const iv = CryptoJS.lib.WordArray.random(tokenAESIVSize / 8); //arg in bytes
+
+  const encryptedToken = CryptoJS.AES.encrypt(
+    token, //attach signature?
+    sharedKeyBytes,
+    { iv: iv, mode: CryptoJS.mode.CTR, padding: CryptoJS.pad.AnsiX923 } //idk to research but somehow works may be stick to strings for a while
+  ); //add to bytes
+
+  let len1 = 0,
+    len2 = 0;
+  const bytesRes = wordArrayToByteArray(iv, len1).concat(
+    wordArrayToByteArray(encryptedToken.ciphertext, len2)
+  );
+
+  return bytesRes;
+}
+
+//token in bytes
+async function decryptTokenFrom(from, token) {
+  const contract = await getContract();
+
+  const tokenByteStr = token.substring(2);
+  const tokenWordArray = CryptoJS.enc.Hex.parse(tokenByteStr); // words array
+
+  const iv = CryptoJS.lib.WordArray.create(
+    tokenWordArray.words.slice(0, tokenAESIVSize / 32)
+  );
+  const tokenWords = CryptoJS.lib.WordArray.create(
+    //token
+    tokenWordArray.words.slice(tokenAESIVSize / 32)
+  );
+  iv.words[0] = iv.words[0] >>> 0; //convert to unsigned
+  iv.words[1] = iv.words[1] >>> 0;
+
+  const receiverPublicEncKey = (await contract.getEncryptionKeyByAddress(from))
+    .toString()
+    .substring(2);
+
+  const ec = new elliptic.ec("secp256k1");
+  const sharedKey = encKeys
+    .derive(ec.keyFromPublic(receiverPublicEncKey, "hex").getPublic())
+    .toString(16);
+  const sharedKeyBytes = CryptoJS.enc.Hex.parse(sharedKey);
+
+  const decryptedToken = CryptoJS.AES.decrypt(
+    { ciphertext: tokenWords },
+    sharedKeyBytes,
+    { iv: iv, mode: CryptoJS.mode.CTR, padding: CryptoJS.pad.AnsiX923 }
+  ).toString(CryptoJS.enc.Utf8);
+
+  return decryptedToken;
+}
+
 async function onRequestTokenGenerated(token, to) {
-  console.log(`Request token aquired, offer sent: ${token}`);
+  console.log(`Request token aquired, offer is being sent: ${token}`);
 
   const contract = await getContract();
 
   const nameHash = await contract.getParticipantNameHashByAddress(to);
 
-  const txResp = await contract.initiateConnection(
-    nameHash,
-    ethers.utils.toUtf8Bytes(token)
-  );
+  const encryptedToken = await encryptTokenTo(to, token);
+
+  const txResp = await contract.initiateConnection(nameHash, encryptedToken);
   await txResp.wait(1);
 }
 async function onRequestAnswerTokenGenerated(token, to) {
-  console.log(`Answer token aquired, answer sent: ${token}`);
+  console.log(`Answer token aquired, answer is being sent: ${token}`);
 
   const contract = await getContract();
 
   const nameHash = await contract.getParticipantNameHashByAddress(to);
 
-  const txResp = await contract.acceptConnection(
-    nameHash,
-    ethers.utils.toUtf8Bytes(token)
-  );
+  const encryptedToken = await encryptTokenTo(to, token);
+
+  const txResp = await contract.acceptConnection(nameHash, encryptedToken);
   await txResp.wait(1);
 }
 
@@ -384,12 +496,12 @@ async function initializeSignalingHandlers() {
       return;
     }
 
-    const answerRaw = ethers.utils.toUtf8String(
+    const encryptedAnswer =
       await contract.getConnectionRequestAnswerTokenByAddresses(
         accountAddress,
         address
-      )
-    );
+      );
+    const answerRaw = await decryptTokenFrom(from, encryptedAnswer);
     console.log("Answer raw", answerRaw);
     let answer = JSON.parse(answerRaw);
     console.log("Got answer, setting remote: " + answerRaw);
@@ -631,6 +743,7 @@ async function signUp() {
   ).toString();
 
   const publicEncKeyInStringBytes = "0x" + encKeys.getPublic(true, "hex");
+  console.log(publicEncKeyInStringBytes);
   const contract = await getContract();
 
   const nameHash = CryptoJS.SHA256(usernameEl.value);
@@ -792,9 +905,11 @@ async function answerConnectionRequest(address) {
 
   const contract = await getContract();
 
-  const offer = ethers.utils.toUtf8String(
-    await contract.getConnectionRequestTokenByAddresses(accountAddress, address)
+  const encryptedOffer = await contract.getConnectionRequestTokenByAddresses(
+    accountAddress,
+    address
   );
+  const offer = await decryptTokenFrom(address, encryptedOffer);
   console.log("offer: " + offer);
   let chatSession = new ChatSession(address, accountAddress, offer);
   await initChatSession(chatSession, offer);
