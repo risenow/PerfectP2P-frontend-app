@@ -98,6 +98,11 @@ const correctDecryptionSignature = "correct output";
 let chatSessionsPerContactAddress = new Map();
 let currentChatSession = null;
 
+/**
+ * Converts bytes array to CryptoJS word array
+ * @param {[]} ba array of bytes
+ * @returns {CryptoJS.lib.WordArray}
+ */
 function byteArrayToWordArray(ba) {
   var wa = [],
     i;
@@ -109,7 +114,12 @@ function byteArrayToWordArray(ba) {
 
   return CryptoJS.lib.WordArray.create(wa, ba.length);
 }
-
+/**
+ * Deconstructs int in 4(max) bytes
+ * @param {int} word 32-bit int
+ * @param {int} length sig bytes
+ * @returns
+ */
 function wordToByteArray(word, length) {
   var ba = [],
     i,
@@ -121,7 +131,12 @@ function wordToByteArray(word, length) {
 
   return ba;
 }
-
+/**
+ * Transforms CryptoJS word array to byte array
+ * @param {Array.<CryptoJS.lib.WordArray>} wordArray
+ * @param {int} length may be get rid of it?
+ * @returns {Array.<UInt8>}
+ */
 function wordArrayToByteArray(wordArray, length) {
   if (
     wordArray.hasOwnProperty("sigBytes") &&
@@ -143,7 +158,12 @@ function wordArrayToByteArray(wordArray, length) {
   return [].concat.apply([], result);
 }
 
-// token is string
+/**
+ * Encrypts token by ECIES(ECDH shared key => AES)
+ * @param {string} to Ethereum address
+ * @param {string} token
+ * @returns {Array.<UInt8>}
+ */
 async function encryptTokenTo(to, token) {
   const contract = await getContract();
 
@@ -162,7 +182,7 @@ async function encryptTokenTo(to, token) {
   const encryptedToken = CryptoJS.AES.encrypt(
     token, //attach signature?
     sharedKeyBytes,
-    { iv: iv, mode: CryptoJS.mode.CTR, padding: CryptoJS.pad.AnsiX923 } //idk to research but somehow works may be stick to strings for a while
+    { iv: iv, mode: CryptoJS.mode.CTR, padding: CryptoJS.pad.AnsiX923 }
   ); //add to bytes
 
   let len1 = 0,
@@ -174,7 +194,12 @@ async function encryptTokenTo(to, token) {
   return bytesRes;
 }
 
-//token in bytes
+/**
+ * Decrypts token by ECIES(ECDH shared key => AES)
+ * @param {string} from Ethereum address
+ * @param {string} token hex bytes string(ethers style)
+ * @returns {string} ready to use token
+ */
 async function decryptTokenFrom(from, token) {
   const contract = await getContract();
 
@@ -209,7 +234,11 @@ async function decryptTokenFrom(from, token) {
 
   return decryptedToken;
 }
-
+/**
+ * Is invoked after WebRTC offer generation. Ecnrypts it and sends by contract to the counteragent(interlocutor)
+ * @param {string} token
+ * @param {string} to Ethereum address
+ */
 async function onRequestTokenGenerated(token, to) {
   console.log(`Request token aquired, offer is being sent: ${token}`);
 
@@ -222,6 +251,11 @@ async function onRequestTokenGenerated(token, to) {
   const txResp = await contract.initiateConnection(nameHash, encryptedToken);
   await txResp.wait(1);
 }
+/**
+ * Is invoked after WebRTC answer generation. Ecnrypts it and sends by contract to the counteragent(interlocutor)
+ * @param {string} token
+ * @param {string} to Ethereum address
+ */
 async function onRequestAnswerTokenGenerated(token, to) {
   console.log(`Answer token aquired, answer is being sent: ${token}`);
 
@@ -235,7 +269,12 @@ async function onRequestAnswerTokenGenerated(token, to) {
   await txResp.wait(1);
 }
 
-//WebRTC
+/**
+ * Sets up a peer connection with all the event handlers
+ * @param {ChatSession} chatSession chat session that the RTCPeerConnection is constructed for
+ * @param {*} isOfferSide if the client offers connection
+ * @returns RTCPeerConnection
+ */
 function makePeerConnection(chatSession, isOfferSide) {
   let peerConnection = undefined;
   let configuration = {
@@ -301,6 +340,12 @@ function makePeerConnection(chatSession, isOfferSide) {
 
   return peerConnection;
 }
+/**
+ * Object that handles a chat state(1 object per chat). Also manages a corresponding WebRTC connection.
+ * @param {string} offerAddr Ethereum address
+ * @param {string} answerAddr Ethereum address
+ * @param {string} offer WebRTC offer
+ */
 function ChatSession(offerAddr, answerAddr, offer = null) {
   const isOfferSide = offer == null;
 
@@ -320,6 +365,12 @@ function ChatSession(offerAddr, answerAddr, offer = null) {
   this.changed = false;
 }
 
+/**
+ * Can't make the constructor async. Should be called after ChatSession object is constructed.
+ * Initializes datachannel and most of the event handlers.
+ * @param {ChatSession} chatSession
+ * @param {string} offer WebRTC offer from the potential interlocutor
+ */
 async function initChatSession(chatSession, offer = null) {
   var sdpConstraints = {
     optional: [],
@@ -404,8 +455,11 @@ async function initChatSession(chatSession, offer = null) {
   console.log(JSON.stringify(chatSession));
 }
 
-//logic
-//escape shit from chatters and contacts
+/**
+ * Escape html characters
+ * @param {string} unsafe string potentially containing html code
+ * @returns
+ */
 function escapeHtml(unsafe) {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -414,6 +468,10 @@ function escapeHtml(unsafe) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+/**
+ * Removes all childs from HTML element
+ * @param {HTMLElement} element
+ */
 function clearElement(element) {
   var node = element;
 
@@ -422,6 +480,11 @@ function clearElement(element) {
   }
 }
 
+/**
+ * Changes active chat both in state and UI
+ * @param {string} address Ethereum address
+ * @returns
+ */
 async function selectChatWith(address) {
   let activeChatSession = chatSessionsPerContactAddress.get(address);
   if (typeof activeChatSession == undefined) {
@@ -466,6 +529,10 @@ function addConnectionRequestToElementList(nickname, address) {
   };
 }
 
+/**
+ * Initialize handlers for contract events: OfferMade and AnswerMade.
+ * These handlers perform WebRTC connection negotiation steps.
+ */
 async function initializeSignalingHandlers() {
   const contract = await getContract();
 
@@ -512,6 +579,13 @@ async function initializeSignalingHandlers() {
   });
 }
 
+/**
+ * Adds contact to UI contact list
+ * @param {string} nickname contact name
+ * @param {*} addr contact address
+ * @param {*} emptyPlaceholder is placeholder when there are no contacts in list
+ * @returns
+ */
 function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
   const contactsListElElTemplate = document.querySelector(
     "#contact-list-element-ejs-template"
@@ -532,6 +606,11 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
   };
 }
 
+/**
+ * Add new selectable chat to the chat select menu
+ * @param {string} nickname Name of the participant registered in the contract
+ * @param {string} address Hex-like ethereum address
+ */
 function addChatToElementList(nickname, address) {
   const chatListElElTemplate = document.querySelector(
     "#chat-list-element-ejs-template"
@@ -552,6 +631,11 @@ function addChatToElementList(nickname, address) {
     showChatSelectList();
   };
 }
+/**
+ * Add new selectable chat to the chat select menu if such option doesn't already exist(in html)
+ * @param {string} address Hex-like ethereum address of the corresponding participant(interlocutor)
+ * @returns
+ */
 async function addChatToElementListByAddressIfNotExists(address) {
   const alreadyExists = document.getElementById(address + "-chat-list-div");
   if (alreadyExists) return;
@@ -564,10 +648,16 @@ async function addChatToElementListByAddressIfNotExists(address) {
 
 function onMetamaskConnect() {
   if (document.cookie) {
-    initContactsFromCookies();
+    initContactsFromCookies(); //todo: move to "onSignIn", silly to load contacts without beign signed in
   }
 }
 
+/**
+ * Adds a cookie with specified params
+ * @param {string} name
+ * @param {string} value
+ * @param {int} days
+ */
 function createCookie(name, value, days) {
   if (days) {
     var date = new Date();
@@ -577,6 +667,11 @@ function createCookie(name, value, days) {
   document.cookie = name + "=" + value + expires + "; path=/";
 }
 
+/**
+ * Read the value of the specified cookie
+ * @param {string} name
+ * @returns {string|null}
+ */
 function readCookie(name) {
   var nameEQ = name + "=";
   var ca = document.cookie.split(";");
@@ -587,11 +682,17 @@ function readCookie(name) {
   }
   return null;
 }
-
+/**
+ * Erase specified cookie
+ * @param {string} name
+ */
 function eraseCookie(name) {
   createCookie(name, "", -1);
 }
 
+/**
+ * Load all the contacts stored in cookies
+ */
 async function initContactsFromCookies() {
   const keyBase = "contact";
   let currentIndex = 0;
@@ -631,6 +732,11 @@ async function initContactsFromCookies() {
   }
 }
 
+/**
+ * Downloads locally made file in browser
+ * @param {string} filename Name of the file to save
+ * @param {*} text File content
+ */
 function download(filename, text) {
   var element = document.createElement("a");
   element.setAttribute(
@@ -647,19 +753,30 @@ function download(filename, text) {
   document.body.removeChild(element);
 }
 
+/**
+ * Adds contact(in Model side of things), saving contact to state, both dynamic and permament(cookies)
+ * @param {string} contactAddr Ethereum address of the contact
+ * @param {*} addCookie Specifies wether to add corresponding cookie
+ */
 function addContactInner(contactAddr, addCookie = true) {
   if (addCookie) {
     createCookie(`contact${contactsAddresses.length}`, contactAddr, 1000);
   }
   contactsAddresses.push(contactAddr);
 }
-
+/**
+ * Show the element with smooth effect of opacity transition(not working yet)
+ * @param {HTMLElement} hiddenElement Supposed to be popup element that is hidden(by display property)
+ */
 function showWindowElement(hiddenElement) {
   hiddenElement.style.display = "block";
   hiddenElement.style.opacity = 0;
   hiddenElement.style.opacity = 1;
 }
-overlayElement.ontransitionend;
+/**
+ * Hide the element with smooth effect of opacity transition
+ * @param {HTMLElement} element Supposed to be popup element that is hidden(by display property)
+ */
 function hideWindowElement(element) {
   element.style.opacity = 0;
 
@@ -667,19 +784,35 @@ function hideWindowElement(element) {
     element.style.display = "none";
   };
 }
+/**
+ * Unused
+ * @param {HTMLElement} fromWindow
+ * @param {HTMLElement} toWindow
+ */
 function transitionFromToWindow(fromWindow, toWindow) {
   hideWindowElement(fromWindow);
   showWindowElement(toWindow);
 }
+/**
+ * Hides all popup windows(except sign in)
+ */
 function hideAllWindowElements() {
   for (let i = 0; i < popupWindows.length; i++) {
     hideWindowElement(popupWindows[i]);
   }
   overlayElement.style.display = "none";
 }
+/**
+ * Returns true if metamask is installed otherwise returns false
+ * @returns {bool}
+ */
 function metamaskInstalled() {
   return typeof window.ethereum != "undefined";
 }
+/**
+ * Request access to metamask accounts, initializes contract event handlers(to move to sign in?) and unblocks sign in
+ * @returns
+ */
 async function connectMetamask() {
   if (!metamaskInstalled()) {
     Swal.fire({
@@ -711,11 +844,18 @@ async function connectMetamask() {
 
   onMetamaskConnect();
 }
+/**
+ * Returns signaling and registration smart-contract
+ * @returns ethers.Contract
+ */
 async function getContract() {
   const provider = new ethers.providers.Web3Provider(window.ethereum);
   const signer = provider.getSigner();
   return new ethers.Contract(contractAddress, abi, signer);
 }
+/**
+ * Saves encryption keys as "keys.key" on the user's machine
+ */
 function downloadKeys() {
   download("keys.key", passwordedPrKey);
 
@@ -723,12 +863,18 @@ function downloadKeys() {
   downloadKeysButtonElement.ontransitionend = () =>
     (downloadKeysButtonElement.style.display = "none");
 }
-
+/**
+ * Opens Sign Up window
+ */
 function openRegistrationMenu() {
   overlayElement.style.display = "block";
 
   showWindowElement(registrationPopupWindow);
 }
+/**
+ * Registers participant to smart contract using data from input fiels of registration window
+ * @returns
+ */
 async function signUp() {
   const pwdEl = document.getElementById("password-input");
   const usernameEl = document.getElementById("username-input");
@@ -793,21 +939,31 @@ async function signUp() {
     confirmButtonText: "I understand",
   });
   hideAllWindowElements();
-  //let bytes = CryptoJS.AES.decrypt(passwordedPrKey, pwdEl.value);
-  //console.log(bytes.toString(CryptoJS.enc.Utf8));
 }
+/**
+ * Reads encrypted keys from the file input
+ * @param {Event} event
+ */
 async function readKeys(event) {
   const file = event.target.files.item(0);
   passwordedPrKeyPromise = file.text();
 
   document.getElementById("signin-keys-file-label").textContent = file.name;
 }
+/**
+ * Changes html and js states to indicate that person has signed in
+ * @param {string} name
+ */
 function setSignedInState(name) {
   signinButtonElement.textContent = name;
   signinButtonElement.disabled = true;
   accountName = name;
   encKeys = encKeys; //enc keys should be initialized for correct sign in
 }
+/**
+ * Starts sign in routine and returns true, if Metamask address is registered, otherwise returns false
+ * @returns {bool}
+ */
 async function trySignIn() {
   const contract = await getContract();
 
@@ -834,6 +990,11 @@ async function trySignIn() {
 
   return false;
 }
+/**
+ * Performs sign in using user's input in Sign In window,
+ * which means loading encrypted keys and decrypting them by user input password
+ * @returns
+ */
 async function signIn() {
   const contract = await getContract();
 
@@ -876,30 +1037,22 @@ async function signIn() {
   hideWindowElement(signInPopupWindow);
   overlayElement.style.display = "none";
 }
+/**
+ * Starts Sign In routine if Metamsk address is registered, otherwise starts registration routine
+ * @returns
+ */
 async function onTrySignIn() {
-  /*var ciphertext = CryptoJS.AES.encrypt(
-    "JSON.stringify(data)",
-    "shared1"
-  ).toString();
-
-  // Decrypt
-  try {
-    var bytes = CryptoJS.AES.decrypt(ciphertext, "shared1");
-    console.log(bytes);
-    var decryptedData = bytes.toString(CryptoJS.enc.Utf8);
-
-    console.log(decryptedData);
-  } catch (e) {
-    console.log(e);
-  }*/
-
   if (!(await trySignIn())) {
     openRegistrationMenu();
     return;
   }
 }
 //may be create seperate util function that will not depend on html representation
-
+/**
+ * Makes encrypted WebRTC answer and writes it to the contract
+ * Is only applicable if <address> offered connection(the corresponing WebRTC offer is written to the contract).
+ * @param {string} address Ethereum address
+ */
 async function answerConnectionRequest(address) {
   console.log(`connected to ${address}`);
 
@@ -919,6 +1072,10 @@ async function answerConnectionRequest(address) {
   selectChatWith(address);
   logChat(null, "Answering connection request...", chatSession);
 }
+/**
+ * Makes encrypted WebRTC offer and writes it to the contract
+ * @param {string} address Ethereum address
+ */
 async function requestConnectionTo(address) {
   let chatSession = new ChatSession(accountAddress, address);
   await initChatSession(chatSession);
@@ -930,6 +1087,11 @@ async function requestConnectionTo(address) {
 
   console.log(`requested connection to ${address}`);
 }
+/**
+ * Called in app clickable elements events. Shows alerts if not all requirements are met.
+ * Returns the bool that specifies whether the sign in was correctly performed.
+ * @returns {bool}
+ */
 function onShowActiveChatLists() {
   if (typeof accounts == "undefined") {
     Swal.fire({
@@ -952,6 +1114,10 @@ function onShowActiveChatLists() {
 
   return true;
 }
+/**
+ * Opens custom dropdown list for connection requests list
+ * @returns
+ */
 function showConnectionRequestsList() {
   if (!onShowActiveChatLists()) return;
 
@@ -970,6 +1136,10 @@ function showConnectionRequestsList() {
 
   el.style.display = el.style.display == "block" ? "none" : "block";
 }
+/**
+ * Opens custom dropdown list for contacts list
+ * @returns
+ */
 function showContactsList() {
   if (!onShowActiveChatLists()) return;
 
@@ -977,6 +1147,10 @@ function showContactsList() {
     contactsListElement.style.display == "block" ? "none" : "block";
 }
 
+/**
+ * Opens custom dropdown list for chat selection list
+ * @returns
+ */
 function showChatSelectList() {
   console.log("chats displayed");
   if (!onShowActiveChatLists()) return;
@@ -1000,6 +1174,9 @@ function showChatSelectList() {
   console.log("chats displayed");
 }
 
+/**
+ * Performs contact addition, both in the UI part and app state part
+ */
 async function onAddContact() {
   console.log("doing contact addition");
 
@@ -1048,6 +1225,10 @@ async function onAddContact() {
   addContactInner(contactAddress, true);
   addContactToElementList(contactName, contactAddress);
 }
+/**
+ * Called when the message is written to the ChatSession history
+ * @param {ChatSession} chatSession
+ */
 function onChatSessionMsg(chatSession) {
   if (chatSession != currentChatSession) {
     chatSelectArrow.classList.add("arrow-new-notification");
@@ -1057,6 +1238,11 @@ function onChatSessionMsg(chatSession) {
       .classList.add("new-notification");
   }
 }
+/**
+ * Sends message to the ChatSession's interlocutor
+ * @param {ChatSession} chatSession
+ * @returns
+ */
 function sendMsg(chatSession) {
   if (accountName == null) {
     Swal.fire({
@@ -1079,6 +1265,12 @@ function sendMsg(chatSession) {
   logChat(accountName, msg, chatSession);
   msgInputElement.value = "";
 }
+/**
+ * Logs message in the UI part
+ * @param {string} from Participant name or <null> if system message
+ * @param {string} msg Message
+ * @param {ChatSession} chatSession
+ */
 function logChat(from, msg, chatSession) {
   const msgTemplate =
     '<p > <span style="color:<%if (system){%>rgb(150,150,150) <%} else if (!self){%>red  <%}else{%> green <%}%>"> <%=from%>:</span> <span <%if (system){%> style="color:rgb(150,150,150)" <%}%> ><%=msg%></span> </p>';
