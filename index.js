@@ -3,6 +3,7 @@ import { ethers } from "./ethers-5.1.esm.min.js";
 import { contractAddress, abi } from "./contract-constants.js";
 import "./elliptic.min.js";
 
+const UseTokenCompression = true;
 const tokenAESIVSize = 64;
 const chatAESIVSize = 128;
 
@@ -100,7 +101,7 @@ let currentChatSession = null;
 
 /**
  * Converts bytes array to CryptoJS word array
- * @param {[]} ba array of bytes
+ * @param {Array.<Uint8>} ba array of bytes
  * @returns {CryptoJS.lib.WordArray}
  */
 function byteArrayToWordArray(ba) {
@@ -235,6 +236,17 @@ async function decryptTokenFrom(from, token) {
   return decryptedToken;
 }
 /**
+ * Currently only removes local candidates
+ * TODO: to compress ip adresses to 32bit number, mb replace candidates strings byt
+ * @param {RTCSessionDescription} desc
+ */
+function minifyDesc(desc) {
+  const sdp = desc.sdp;
+  const lines = sdp.split("/r/n");
+
+  // TODO
+}
+/**
  * Is invoked after WebRTC offer generation. Ecnrypts it and sends by contract to the counteragent(interlocutor)
  * @param {string} token
  * @param {string} to Ethereum address
@@ -246,7 +258,8 @@ async function onRequestTokenGenerated(token, to) {
 
   const nameHash = await contract.getParticipantNameHashByAddress(to);
 
-  const encryptedToken = await encryptTokenTo(to, token);
+  const tokenBlob = token; //to pack desc here (TODO)
+  const encryptedToken = await encryptTokenTo(to, tokenBlob);
 
   const txResp = await contract.initiateConnection(nameHash, encryptedToken);
   await txResp.wait(1);
@@ -263,7 +276,9 @@ async function onRequestAnswerTokenGenerated(token, to) {
 
   const nameHash = await contract.getParticipantNameHashByAddress(to);
 
-  const encryptedToken = await encryptTokenTo(to, token);
+  const tokenBlob = token; // to pack desc (TODO)
+
+  const encryptedToken = await encryptTokenTo(to, tokenBlob);
 
   const txResp = await contract.acceptConnection(nameHash, encryptedToken);
   await txResp.wait(1);
@@ -568,7 +583,11 @@ async function initializeSignalingHandlers() {
         accountAddress,
         address
       );
-    const answerRaw = await decryptTokenFrom(from, encryptedAnswer);
+    const answerRawBlob = await decryptTokenFrom(from, encryptedAnswer);
+
+    const answerRaw = answerRawBlob; // to unpack desc TODO
+
+    console.log("Type of answer raw", typeof answerRaw);
     console.log("Answer raw", answerRaw);
     let answer = JSON.parse(answerRaw);
     console.log("Got answer, setting remote: " + answerRaw);
@@ -1062,7 +1081,11 @@ async function answerConnectionRequest(address) {
     accountAddress,
     address
   );
-  const offer = await decryptTokenFrom(address, encryptedOffer);
+  const offerBlob = await decryptTokenFrom(address, encryptedOffer);
+
+  const offer = offerBlob; // to unpack desc (TODO)
+
+  console.log(typeof offer);
   console.log("offer: " + offer);
   let chatSession = new ChatSession(address, accountAddress, offer);
   await initChatSession(chatSession, offer);
