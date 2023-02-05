@@ -541,9 +541,24 @@ function addConnectionRequestToElementList(nickname, address) {
     answerConnectionRequest(address);
 
     document.getElementById(address + "-connection-list-div").remove();
+
+    connectionRequestsListElement.style.display = "none";
   };
 }
 
+/**
+ * Make notification of connection request in the browser
+ * @param {string} name name of the contact who is requesting connection
+ */
+function sendConnectionRequestNotification(name) {
+  Notification.requestPermission().then((perm) => {
+    if (perm === "granted") {
+      new Notification("New connection request", {
+        body: `Connection request from ${name}`,
+      });
+    }
+  });
+}
 /**
  * Initialize handlers for contract events: OfferMade and AnswerMade.
  * These handlers perform WebRTC connection negotiation steps.
@@ -562,6 +577,7 @@ async function initializeSignalingHandlers() {
     const name = await contract.getParticipantNameByAddress(address);
 
     addConnectionRequestToElementList(name, address);
+    sendConnectionRequestNotification(name);
   });
   contract.on(answersFilter, async function (to, from) {
     console.log("Got answer event");
@@ -622,6 +638,8 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
   if (emptyPlaceholder) return;
   document.getElementById(nickname + "-request-button").onclick = function () {
     requestConnectionTo(addr);
+
+    contactsListElement.style.display = "none";
   };
 }
 
@@ -954,7 +972,7 @@ async function signUp() {
   Swal.fire({
     title: "Warning",
     text: "Please, download the keys, otherwise you won't be able to sign in next time!",
-    icon: "error",
+    icon: "warning",
     confirmButtonText: "I understand",
   });
   hideAllWindowElements();
@@ -1050,6 +1068,21 @@ async function signIn() {
   plainPrKey = plainPrKey.substring(correctDecryptionSignature.length); //remove signature
   let ec = new elliptic.ec("secp256k1");
   encKeys = ec.keyFromPrivate(plainPrKey, "hex");
+
+  const publicEncKeyInStringBytesExpected =
+    await contract.getEncryptionKeyByAddress(accounts[0]);
+  const publicEncKeyInStringBytesActual = "0x" + encKeys.getPublic(true, "hex");
+
+  if (publicEncKeyInStringBytesExpected != publicEncKeyInStringBytesActual) {
+    Swal.fire({
+      title: "Error!",
+      text: "Invalid key!",
+      icon: "error",
+      confirmButtonText: "Cool",
+    });
+
+    return;
+  }
 
   setSignedInState(participantName);
 
@@ -1315,3 +1348,5 @@ function logChat(from, msg, chatSession) {
   }
   console.log(resultingElement);
 }
+
+Notification.requestPermission();

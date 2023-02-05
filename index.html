@@ -127,12 +127,15 @@
     </div>
 
     <script id="contact-list-element-ejs-template" type="text/template">
-        <div class="dropdown-content-row" <%if (emptyPlaceholder){%>id="empty-placeholder-contact-list-element" <%} else {%> id = "<%=username%>-contact-list-element" <%}%> >
-            <div class="dropdown-content-row-major-col" style="width:60%">
+        <div class="dropdown-content-row light-buttons-on-hover" <%if (emptyPlaceholder){%>id="empty-placeholder-contact-list-element" <%} else {%> id = "<%=username%>-contact-list-element" <%}%> >
+            <div class="dropdown-content-row-major-col" style="width:50%">
                 <%=username%>
             </div>
-            <div class="dropdown-content-row-minor-col" style="width:40%">
-                <%if (!emptyPlaceholder){%><button id="<%=username%>-request-button" class="dropdown-button" style="flex:none;height:60px;width: 75%;text-align: center;font-size: medium;">Request chat</button><%}%>
+            <div class="dropdown-content-row-minor-col" style="width:25%">
+                <%if (!emptyPlaceholder){%><button id="<%=username%>-mail-button" class="dropdown-button" style="flex:none;height:60px;width: 100%;text-align: center;font-size: medium;">Mail</button><%}%>
+            </div>
+            <div class="dropdown-content-row-minor-col" style="width:25%">
+                <%if (!emptyPlaceholder){%><button id="<%=username%>-request-button" class="dropdown-button" style="flex:none;height:60px;width: 100%;text-align: center;font-size: medium;">Request chat</button><%}%>
             </div>
         </div>
     </script>
