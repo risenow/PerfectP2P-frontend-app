@@ -73,7 +73,7 @@ body {
 .dropdown-content {
   display: none;
   position: absolute;
-  width: 130%;
+  width: 180%;
   max-height: 300px;
   overflow-x: hidden;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
@@ -521,4 +521,43 @@ body {
   -moz-appearance: textfield-multiline;
   -webkit-appearance: textarea;
   resize: none;
+}
+
+/*tooltip code from w3schools*/
+.tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 100%;
+  background-color: rgb(100, 100, 100);
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 5px 0;
+  position: absolute;
+  z-index: -1;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -75%;
+  font-size: small;
+  z-index: 100000;
+}
+
+.tooltip .tooltiptext::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: rgb(100, 100, 100) transparent transparent transparent;
+  
+}
+
+.tooltip:hover .tooltiptext {
+  visibility: visible;
 }

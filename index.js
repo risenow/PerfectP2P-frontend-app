@@ -630,16 +630,31 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
   contactsListElement.insertAdjacentHTML(
     "beforeend",
     ejs.compile(contactsListElElTemplate)({
-      username: escapeHtml(nickname),
+      username: nickname,
+      address: "0x.." + addr.substr(37, 5),
       emptyPlaceholder: emptyPlaceholder,
     })
   );
 
   if (emptyPlaceholder) return;
+
   document.getElementById(nickname + "-request-button").onclick = function () {
     requestConnectionTo(addr);
 
     contactsListElement.style.display = "none";
+  };
+  const copyAddressButtonEl = document.getElementById(
+    nickname + "-address-copy-button"
+  );
+  copyAddressButtonEl.onclick = function () {
+    const tipEl = document.getElementById(nickname + "-address-copy-tip");
+
+    tipEl.textContent = "Copied!";
+    setTimeout(() => {
+      tipEl.textContent = "Copy";
+    }, 2500);
+
+    navigator.clipboard.writeText(addr);
   };
 }
 
