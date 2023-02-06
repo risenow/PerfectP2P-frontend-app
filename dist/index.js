@@ -1236,11 +1236,16 @@ function showChatSelectList() {
 async function onAddContact() {
   console.log("doing contact addition");
 
-  const newContactNameInputEl = document.getElementById("nickname-input");
-  const contactName = newContactNameInputEl.value;
-  const contactNameHash = "0x" + CryptoJS.SHA256(contactName).toString();
-
   const contract = await getContract();
+
+  const newContactNameInputEl = document.getElementById("nickname-input");
+  let contactName = newContactNameInputEl.value;
+
+  if (contactName.substring(0, 2) === "0x" && contactName.length == 42) {
+    contactName = await contract.getParticipantNameByAddress(contactName);
+  }
+
+  const contactNameHash = "0x" + CryptoJS.SHA256(contactName).toString();
 
   const isParticipant = await contract.isParticipantNameHash(contactNameHash);
   if (!isParticipant) {
