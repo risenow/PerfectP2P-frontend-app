@@ -82,6 +82,7 @@ body {
 
   top: 0%;
   left: 100%;
+  padding-right: 5px;
   /*border:1px solid black;*/
 
 }
@@ -134,8 +135,15 @@ body {
   justify-content: center;
 }
 
-.dropdown-content-row-minor-col button {
+.light-buttons-on-hover button{
+  visibility: hidden;
+}
+.light-buttons-on-hover:hover button{
+  visibility: visible;
+}
 
+
+.dropdown-content-row-minor-col button {
   border-width: 1px;
   background-color: rgb(247, 247, 247);
 
@@ -507,4 +515,10 @@ body {
   border-width: 0px;
   border: none;
   outline: none;
+}
+
+.text-area-attributes{
+  -moz-appearance: textfield-multiline;
+  -webkit-appearance: textarea;
+  resize: none;
 }
