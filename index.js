@@ -1,6 +1,7 @@
 import "./ejs.min.js";
 import { ethers } from "./ethers-5.1.esm.min.js";
 import { contractAddress, abi } from "./contract-constants.js";
+import { insertCopyableAddressElement } from "./custom-elements.js";
 import "./elliptic.min.js";
 
 const UseTokenCompression = true;
@@ -28,6 +29,12 @@ const showConnectionRequestsButton = document.getElementById(
 const showContactsButton = document.getElementById("contacts-dropdown-button");
 const connectionRequestsListElement = document.getElementById(
   "connection-requests-dropdown-list"
+);
+const showAnsweringMachineMsgsButton = document.getElementById(
+  "left-msgs-dropdown-button"
+);
+const answeringMachineMsgsListElement = document.getElementById(
+  "left-msgs-dropdown-list"
 );
 const contactsListElement = document.getElementById("contacts-dropdown-list");
 const addContactButtonElement = document.getElementById("add-contact-button");
@@ -69,21 +76,32 @@ msgInputElement.addEventListener("keypress", function (event) {
   }
 });
 document.onclick = function (event) {
+  const swalInOnScreen =
+    document.getElementsByClassName("swal2-container").length != 0;
+
   if (
+    !swalInOnScreen &&
     !contactsListElement.contains(event.target) &&
     !showContactsButton.contains(event.target)
   ) {
-    console.log("close contacts!");
     contactsListElement.style.display = "none";
   }
   if (
+    !swalInOnScreen &&
     !connectionRequestsListElement.contains(event.target) &&
     !showConnectionRequestsButton.contains(event.target)
   ) {
-    console.log("close conn reqs!");
     connectionRequestsListElement.style.display = "none";
   }
+  if (
+    !swalInOnScreen &&
+    !answeringMachineMsgsListElement.contains(event.target) &&
+    !showAnsweringMachineMsgsButton.contains(event.target)
+  ) {
+    answeringMachineMsgsListElement.style.display = "none";
+  }
 };
+showAnsweringMachineMsgsButton.onclick = showAnsweringMachineMsgsList;
 
 //state
 let contactsAddresses = [];
@@ -250,8 +268,9 @@ function minifyDesc(desc) {
  * Is invoked after WebRTC offer generation. Ecnrypts it and sends by contract to the counteragent(interlocutor)
  * @param {string} token
  * @param {string} to Ethereum address
+ * @param {string} plain subject text
  */
-async function onRequestTokenGenerated(token, to) {
+async function onRequestTokenGenerated(token, to, subject) {
   console.log(`Request token aquired, offer is being sent: ${token}`);
 
   const contract = await getContract();
@@ -261,7 +280,13 @@ async function onRequestTokenGenerated(token, to) {
   const tokenBlob = token; //to pack desc here (TODO)
   const encryptedToken = await encryptTokenTo(to, tokenBlob);
 
-  const txResp = await contract.initiateConnection(nameHash, encryptedToken);
+  const encryptedSubject = await encryptTokenTo(to, subject);
+
+  const txResp = await contract.initiateConnection(
+    nameHash,
+    encryptedToken,
+    encryptedSubject
+  );
   await txResp.wait(1);
 }
 /**
@@ -290,7 +315,7 @@ async function onRequestAnswerTokenGenerated(token, to) {
  * @param {*} isOfferSide if the client offers connection
  * @returns RTCPeerConnection
  */
-function makePeerConnection(chatSession, isOfferSide) {
+function makePeerConnection(chatSession, isOfferSide, subject = null) {
   let peerConnection = undefined;
   let configuration = {
       //iceServers: [{ url: "stun:stun.gmx.net" }],
@@ -313,7 +338,8 @@ function makePeerConnection(chatSession, isOfferSide) {
       if (isOfferSide) {
         await onRequestTokenGenerated(
           JSON.stringify(peerConnection.localDescription),
-          chatSession.answerAddr
+          chatSession.answerAddr,
+          subject
         );
       } else {
         await onRequestAnswerTokenGenerated(
@@ -357,11 +383,13 @@ function makePeerConnection(chatSession, isOfferSide) {
 }
 /**
  * Object that handles a chat state(1 object per chat). Also manages a corresponding WebRTC connection.
+ * After construction, an <initChatSession> call is mandatory.
  * @param {string} offerAddr Ethereum address
  * @param {string} answerAddr Ethereum address
+ * @param {string} subject plain subject text
  * @param {string} offer WebRTC offer
  */
-function ChatSession(offerAddr, answerAddr, offer = null) {
+function ChatSession(offerAddr, answerAddr, subject = null, offer = null) {
   const isOfferSide = offer == null;
 
   let chatSession = this;
@@ -375,7 +403,7 @@ function ChatSession(offerAddr, answerAddr, offer = null) {
   this.chatHistory = "";
   this.unreadMsgs = 0;
 
-  this.peerConnection = makePeerConnection(this, isOfferSide);
+  this.peerConnection = makePeerConnection(this, isOfferSide, subject); //mb just take subject from ChatSession?
 
   this.changed = false;
 }
@@ -522,20 +550,94 @@ async function selectChatWith(address) {
   chatLabelElement.firstChild.nodeValue = name;
 }
 
-function addConnectionRequestToElementList(nickname, address) {
+/**
+ *
+ * @param {string} nickname
+ * @param {string} address Ethereum address
+ * @param {string} msg
+ * @param {number} to make different ids for elements
+ */
+function addAnsweringMachineMsgToElementList(nickname, address, msg, uniq) {
+  const answeringMachineMsgsListElElTemplate = document.querySelector(
+    "#left-msgs-list-element-ejs-template"
+  ).innerHTML;
+
+  //showAnsweringMachineMsgsButton.classList.add("new-notification");
+  const shortMsg = msg.substring(0, 40) + (msg.length > 41 ? ".." : "");
+
+  answeringMachineMsgsListElement.insertAdjacentHTML(
+    "beforeend",
+    ejs.compile(answeringMachineMsgsListElElTemplate)({
+      username: escapeHtml(nickname),
+      shortAddress: "0x.." + address.substring(37, 37 + 5),
+      address: address,
+      msg: shortMsg,
+      fullMsg: msg,
+      uniq: uniq,
+    })
+  );
+
+  if (msg.length > 41) {
+    const shortMsgEl = document.getElementById(
+      uniq.toString() + "-" + address + "-left-msgs-shortmsg"
+    );
+
+    shortMsgEl.classList.add("pointer-cursor");
+
+    shortMsgEl.onclick = function () {
+      Swal.fire({
+        title: "Subject",
+        text: msg,
+        customClass: { title: "swal-title swal-title-for-subject" },
+      });
+    };
+  }
+}
+
+/**
+ * UI reaction to new connection request
+ * @param {string} nickname
+ * @param {string} address Ethrereum address
+ * @param {string} subject Subject of requested chat
+ */
+function addConnectionRequestToElementList(nickname, address, subject) {
   const connectionRequestsListElElTemplate = document.querySelector(
     "#connection-request-list-element-ejs-template"
   ).innerHTML;
 
   showConnectionRequestsButton.classList.add("new-notification");
 
+  const shortMsg = subject.substring(0, 20) + (subject.length > 21 ? ".." : "");
   connectionRequestsListElement.insertAdjacentHTML(
     "beforeend",
     ejs.compile(connectionRequestsListElElTemplate)({
       username: escapeHtml(nickname),
       address: address,
+      msg: shortMsg,
+      fullMsg: subject,
     })
   );
+
+  const copyAddressCol = document.getElementById(
+    `${address}-connection-address-copy-col`
+  );
+
+  insertCopyableAddressElement(copyAddressCol, address, "connection", 0);
+
+  if (subject.length > 21) {
+    const shortMsgEl = document.getElementById(
+      address + "-connection-shortmsg"
+    );
+
+    shortMsgEl.classList.add("pointer-cursor");
+
+    shortMsgEl.onclick = function () {
+      Swal.fire({
+        title: "Subject",
+        text: subject,
+      });
+    };
+  }
 
   document.getElementById(nickname + "-respond-button").onclick = function () {
     answerConnectionRequest(address);
@@ -569,14 +671,18 @@ async function initializeSignalingHandlers() {
   const requestsFilter = contract.filters.OfferMade(accountAddress, null);
   const answersFilter = contract.filters.AnswerMade(accountAddress, null);
 
-  contract.on(requestsFilter, async function (to, from) {
+  contract.on(requestsFilter, async function (to, from, idx) {
     console.log("Got request event");
     console.log(to);
 
     const address = from;
     const name = await contract.getParticipantNameByAddress(address);
-
-    addConnectionRequestToElementList(name, address);
+    const encryptedMsg = await contract.getParticipantLeftMsg(to, idx);
+    addConnectionRequestToElementList(
+      name,
+      address,
+      await decryptTokenFrom(from, encryptedMsg)
+    );
     sendConnectionRequestNotification(name);
   });
   contract.on(answersFilter, async function (to, from) {
@@ -638,24 +744,32 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
 
   if (emptyPlaceholder) return;
 
-  document.getElementById(nickname + "-request-button").onclick = function () {
-    requestConnectionTo(addr);
-
-    contactsListElement.style.display = "none";
-  };
-  const copyAddressButtonEl = document.getElementById(
-    nickname + "-address-copy-button"
+  const addressCopyColEl = document.getElementById(
+    nickname + "-contact-address-copy-col"
   );
-  copyAddressButtonEl.onclick = function () {
-    const tipEl = document.getElementById(nickname + "-address-copy-tip");
 
-    tipEl.textContent = "Copied!";
-    setTimeout(() => {
-      tipEl.textContent = "Copy";
-    }, 2500);
+  insertCopyableAddressElement(addressCopyColEl, addr, "contact", 0);
 
-    navigator.clipboard.writeText(addr);
-  };
+  document.getElementById(nickname + "-request-button").onclick =
+    async function () {
+      const { value: subject } = await Swal.fire({
+        title: "Enter subject for the chat",
+        input: "text",
+        inputLabel: "Subject",
+        inputValue: "",
+        showCancelButton: true,
+
+        inputValidator: (value) => {
+          if (!value) {
+            return "You need to write something!";
+          }
+        },
+      });
+
+      requestConnectionTo(addr, subject);
+
+      contactsListElement.style.display = "none";
+    };
 }
 
 /**
@@ -871,7 +985,7 @@ async function connectMetamask() {
       title: "Error!",
       text: "You need to install Metamask to run this app!",
       icon: "error",
-      confirmButtonText: "Cool",
+      confirmButtonText: "OK",
     });
     console.log("Metamask is not installed!");
     return;
@@ -888,8 +1002,6 @@ async function connectMetamask() {
 
     signinButtonElement.style.display = "block";
     signinButtonElement.onclick = onTrySignIn;
-
-    await initializeSignalingHandlers();
   } catch (err) {
     console.log(err);
   }
@@ -1006,11 +1118,13 @@ async function readKeys(event) {
  * Changes html and js states to indicate that person has signed in
  * @param {string} name
  */
-function setSignedInState(name) {
+async function setSignedInState(name) {
   signinButtonElement.textContent = name;
   signinButtonElement.disabled = true;
-  accountName = name;
+  accountName = name; //to redesign with multiple owned names in mind
   encKeys = encKeys; //enc keys should be initialized for correct sign in
+
+  await initializeSignalingHandlers();
 }
 /**
  * Starts sign in routine and returns true, if Metamask address is registered, otherwise returns false
@@ -1035,7 +1149,7 @@ async function trySignIn() {
       return true;
     }
 
-    setSignedInState(participantName);
+    await setSignedInState(participantName);
 
     return true;
   }
@@ -1099,7 +1213,7 @@ async function signIn() {
     return;
   }
 
-  setSignedInState(participantName);
+  await setSignedInState(participantName);
 
   hideWindowElement(signInPopupWindow);
   overlayElement.style.display = "none";
@@ -1135,7 +1249,7 @@ async function answerConnectionRequest(address) {
 
   console.log(typeof offer);
   console.log("offer: " + offer);
-  let chatSession = new ChatSession(address, accountAddress, offer);
+  let chatSession = new ChatSession(address, accountAddress, null, offer);
   await initChatSession(chatSession, offer);
   chatSessionsPerContactAddress.set(address, chatSession);
 
@@ -1147,8 +1261,8 @@ async function answerConnectionRequest(address) {
  * Makes encrypted WebRTC offer and writes it to the contract
  * @param {string} address Ethereum address
  */
-async function requestConnectionTo(address) {
-  let chatSession = new ChatSession(accountAddress, address);
+async function requestConnectionTo(address, subject) {
+  let chatSession = new ChatSession(accountAddress, address, subject);
   await initChatSession(chatSession);
   chatSessionsPerContactAddress.set(address, chatSession);
 
@@ -1185,6 +1299,92 @@ function onShowActiveChatLists() {
 
   return true;
 }
+
+/**
+ * Opens custom dropdown list for answering machine msgs list
+ * @returns
+ */
+async function showAnsweringMachineMsgsList() {
+  if (!onShowActiveChatLists()) return;
+
+  //showAnsweringMachineMsgsButton.classList.remove("new-notification");
+
+  const el = answeringMachineMsgsListElement;
+
+  el.style.display = el.style.display == "block" ? "none" : "block";
+
+  if (el.style.display == "block") {
+    await populateAnsweringMachineMsgsList();
+
+    if (el.childNodes.length == 0) {
+      el.style.display = "none";
+      return;
+    }
+  }
+}
+
+async function populateAnsweringMachineMsgsList() {
+  clearElement(answeringMachineMsgsListElement);
+
+  const contract = await getContract();
+  const msgsCount = await contract.getParticipantLeftMsgsCount(accountAddress);
+
+  console.log("Msgs count: " + msgsCount);
+
+  const maxLoadedEntries = 30;
+  const firstEntryIndex = msgsCount - maxLoadedEntries;
+  const entriesCount = Math.min(maxLoadedEntries, msgsCount); //loading only last 30 msgs
+
+  let i = msgsCount - 1;
+  let count = 0;
+  for (; i >= 0; i--) {
+    const timestamp = await contract.getParticipantLeftMsgTimestamp(
+      accountAddress,
+      i
+    );
+    //to uncomment
+    //if ((Date.now() - timestamp) / 1000 < 60*3) {
+    //  continue;
+    //}
+    const isAnswered = await contract.isParticipantLeftMsgAnswered(
+      accountAddress,
+      i
+    );
+    console.log("is answered: " + isAnswered);
+    if (isAnswered) {
+      continue;
+    }
+    const senderAddress = await contract.getParticipantLeftMsgSenderAddress(
+      accountAddress,
+      i
+    );
+
+    const encryptedMsg = await contract.getParticipantLeftMsg(
+      accountAddress,
+      i
+    );
+    const msg = await decryptTokenFrom(senderAddress, encryptedMsg);
+    console.log(msg);
+    const senderName = await contract.getParticipantNameByAddress(
+      senderAddress
+    );
+
+    addAnsweringMachineMsgToElementList(senderName, senderAddress, msg, i);
+
+    console.log(senderAddress + "-left-msgs-msg-tip-wrapper");
+    const msgTooltipElement = document.getElementById(
+      senderAddress + "-left-msgs-msg-tip-wrapper"
+    );
+    console.log(msgTooltipElement);
+
+    console.log("Added left msg");
+
+    if (count == entriesCount) break;
+
+    count++;
+  }
+}
+
 /**
  * Opens custom dropdown list for connection requests list
  * @returns
@@ -1207,6 +1407,7 @@ function showConnectionRequestsList() {
 
   el.style.display = el.style.display == "block" ? "none" : "block";
 }
+
 /**
  * Opens custom dropdown list for contacts list
  * @returns
