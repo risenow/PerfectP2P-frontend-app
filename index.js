@@ -1,7 +1,7 @@
 import "./ejs.min.js";
 import { ethers } from "./ethers-5.1.esm.min.js";
 import { contractAddress, abi } from "./contract-constants.js";
-import { insertCopyableAddressElement } from "./custom-elements.js";
+import * as CustomElements from "./custom-elements.js";
 import "./elliptic.min.js";
 
 const UseTokenCompression = true;
@@ -10,6 +10,27 @@ const chatAESIVSize = 128;
 
 let loggedIn = false;
 const bodyElement = document.body;
+
+//callbacks
+const chatSessionCallbacks = {
+  onPeerConnectionError: onPeerConnectionError,
+  logChat: logChat,
+  onAnsweringSideConnectionEstablished: (chatSession) => {
+    selectChatWith(chatSession.oppositeAddr);
+  },
+  onInvalidDataChannelInSendMsg: () => {
+    Swal.fire({
+      title: "Error",
+      text: "Connection is still at negotiating stage or failed!",
+      icon: "error",
+      confirmButtonText: "Ok",
+    });
+  },
+};
+const contractEventHandlers = {
+  onOfferAcquired: onOfferAcquired,
+  onAnswerAcquired: onAnswerAcquired,
+};
 
 //windows
 const overlayElement = document.getElementById("overlay");
@@ -308,14 +329,28 @@ async function onRequestAnswerTokenGenerated(token, to) {
   const txResp = await contract.acceptConnection(nameHash, encryptedToken);
   await txResp.wait(1);
 }
-
+function onPeerConnectionError() {
+  Swal.fire({
+    title: "Error!",
+    text: "Cannot create peer connection!",
+    icon: "error",
+    confirmButtonText: "Cool",
+  });
+}
 /**
  * Sets up a peer connection with all the event handlers
  * @param {ChatSession} chatSession chat session that the RTCPeerConnection is constructed for
- * @param {*} isOfferSide if the client offers connection
+ * @param {bool} isOfferSide if the client offers connection
+ * @param {*} callbacks onPeerConnectionError() - happens if RTCPeerConnection fails to construct,
+ *  logChat(from, msg, chatSession) - logs info in the chat window
  * @returns RTCPeerConnection
  */
-function makePeerConnection(chatSession, isOfferSide, subject = null) {
+function makePeerConnection(
+  chatSession,
+  isOfferSide,
+  callbacks,
+  subject = null
+) {
   let peerConnection = undefined;
   let configuration = {
       //iceServers: [{ url: "stun:stun.gmx.net" }],
@@ -325,12 +360,7 @@ function makePeerConnection(chatSession, isOfferSide, subject = null) {
   try {
     peerConnection = new RTCPeerConnection(configuration, con);
   } catch (err) {
-    Swal.fire({
-      title: "Error!",
-      text: "Cannot create peer connection!",
-      icon: "error",
-      confirmButtonText: "Cool",
-    });
+    callbacks.onPeerConnectionError();
   }
 
   peerConnection.onicecandidate = async function (e) {
@@ -354,26 +384,30 @@ function makePeerConnection(chatSession, isOfferSide, subject = null) {
     switch (peerConnection.connectionState) {
       case "new":
       case "checking":
-        logChat(null, "Connecting...", chatSession);
+        callbacks.logChat(null, "Connecting...", chatSession);
         break;
       case "connecting":
-        logChat(null, "Connecting...", chatSession);
+        callbacks.logChat(null, "Connecting...", chatSession);
         break;
       case "connected":
-        logChat(null, "Connection established!", chatSession);
+        callbacks.logChat(null, "Connection established!", chatSession);
         break;
       case "disconnected":
-        logChat(null, "Oops, disconnected!", chatSession);
+        callbacks.logChat(null, "Oops, disconnected!", chatSession);
         break;
       case "closed":
-        logChat(null, "Oops, disconnected!", chatSession);
+        callbacks.logChat(null, "Oops, disconnected!", chatSession);
         break;
       case "failed":
-        logChat(null, "Connection failed!", chatSession);
+        callbacks.logChat(null, "Connection failed!", chatSession);
         break;
       default:
         console.log(peerConnection.connectionState);
-        logChat(null, "Looks like something gone wrong!", chatSession);
+        callbacks.logChat(
+          null,
+          "Looks like something gone wrong!",
+          chatSession
+        );
         break;
     }
   };
@@ -386,10 +420,19 @@ function makePeerConnection(chatSession, isOfferSide, subject = null) {
  * After construction, an <initChatSession> call is mandatory.
  * @param {string} offerAddr Ethereum address
  * @param {string} answerAddr Ethereum address
+ * @param {*} callbacks onPeerConnectionError() - happens if RTCPeerConnection fails to construct,
+ *  logChat(from, msg, chatSession) - logs info in the chat window,
+ *  onInvalidDataChannelInSendMsg - if data channel for data transmission isn't ready yet or is invalid
  * @param {string} subject plain subject text
  * @param {string} offer WebRTC offer
  */
-function ChatSession(offerAddr, answerAddr, subject = null, offer = null) {
+function ChatSession(
+  offerAddr,
+  answerAddr,
+  callbacks,
+  subject = null,
+  offer = null
+) {
   const isOfferSide = offer == null;
 
   let chatSession = this;
@@ -400,10 +443,26 @@ function ChatSession(offerAddr, answerAddr, subject = null, offer = null) {
 
   this.dataChannel = null;
 
+  /** HTML representation of chat history */
   this.chatHistory = "";
   this.unreadMsgs = 0;
 
-  this.peerConnection = makePeerConnection(this, isOfferSide, subject); //mb just take subject from ChatSession?
+  this.peerConnection = makePeerConnection(
+    this,
+    isOfferSide,
+    callbacks,
+    subject
+  ); //mb just take subject from ChatSession?
+
+  this.sendMsg = function (msg) {
+    if (
+      !chatSession.dataChannel ||
+      chatSession.dataChannel.readyState != "open"
+    ) {
+      callbacks.onInvalidDataChannelInSendMsg();
+    }
+    chatSession.dataChannel.send(JSON.stringify({ message: msg }));
+  };
 
   this.changed = false;
 }
@@ -412,9 +471,12 @@ function ChatSession(offerAddr, answerAddr, subject = null, offer = null) {
  * Can't make the constructor async. Should be called after ChatSession object is constructed.
  * Initializes datachannel and most of the event handlers.
  * @param {ChatSession} chatSession
+ * @param {*} callbacks onPeerConnectionError() - happens if RTCPeerConnection fails to construct,
+ *  logChat(from, msg, chatSession) - logs info in the chat window,
+ *  onAnsweringSideConnectionEstablished(chatSession) - happens only on the answering side when connection is established
  * @param {string} offer WebRTC offer from the potential interlocutor
  */
-async function initChatSession(chatSession, offer = null) {
+async function initChatSession(chatSession, callbacks, offer = null) {
   var sdpConstraints = {
     optional: [],
   };
@@ -441,7 +503,7 @@ async function initChatSession(chatSession, offer = null) {
 
     console.log("got message processed: " + textMsg);
 
-    logChat(name, textMsg, chatSession);
+    callbacks.logChat(name, textMsg, chatSession);
   };
 
   if (isOfferSide) {
@@ -468,6 +530,7 @@ async function initChatSession(chatSession, offer = null) {
     );
   } else {
     console.log("initing answering part");
+    console.log(offer);
 
     var offerDesc = new RTCSessionDescription(JSON.parse(offer));
     await chatSession.peerConnection.setRemoteDescription(offerDesc);
@@ -488,7 +551,7 @@ async function initChatSession(chatSession, offer = null) {
       chatSession.dataChannel = event.channel;
       chatSession.dataChannel.onmessage = dcOnMessage;
 
-      selectChatWith(chatSession.oppositeAddr);
+      callbacks.onAnsweringSideConnectionEstablished(chatSession);
 
       console.log(chatSession.dataChannel);
       console.log(event);
@@ -601,6 +664,13 @@ function addAnsweringMachineMsgToElementList(nickname, address, msg, uniq) {
  * @param {string} subject Subject of requested chat
  */
 function addConnectionRequestToElementList(nickname, address, subject) {
+  const oldRequestEl = document.getElementById(
+    `${address}-connection-list-div`
+  );
+  if (oldRequestEl != null) {
+    oldRequestEl.remove();
+  }
+
   const connectionRequestsListElElTemplate = document.querySelector(
     "#connection-request-list-element-ejs-template"
   ).innerHTML;
@@ -622,7 +692,12 @@ function addConnectionRequestToElementList(nickname, address, subject) {
     `${address}-connection-address-copy-col`
   );
 
-  insertCopyableAddressElement(copyAddressCol, address, "connection", 0);
+  CustomElements.insertCopyableAddressElement(
+    copyAddressCol,
+    address,
+    "connection",
+    0
+  );
 
   if (subject.length > 21) {
     const shortMsgEl = document.getElementById(
@@ -639,13 +714,22 @@ function addConnectionRequestToElementList(nickname, address, subject) {
     };
   }
 
-  document.getElementById(nickname + "-respond-button").onclick = function () {
-    answerConnectionRequest(address);
+  document.getElementById(nickname + "-respond-button").onclick =
+    async function () {
+      const chatSession = await answerConnectionRequest(
+        address,
+        chatSessionCallbacks
+      );
 
-    document.getElementById(address + "-connection-list-div").remove();
+      chatSessionsPerContactAddress.set(chatSession.oppositeAddr, chatSession);
 
-    connectionRequestsListElement.style.display = "none";
-  };
+      addChatToElementListByAddressIfNotExists(chatSession.oppositeAddr);
+      selectChatWith(chatSession.oppositeAddr);
+
+      document.getElementById(address + "-connection-list-div").remove();
+
+      connectionRequestsListElement.style.display = "none";
+    };
 }
 
 /**
@@ -661,62 +745,75 @@ function sendConnectionRequestNotification(name) {
     }
   });
 }
+
+async function onOfferAcquired(to, from, msgIdx) {
+  const contract = await getContract();
+
+  console.log("Got request event");
+  console.log(to);
+
+  const address = from;
+  const name = await contract.getParticipantNameByAddress(address);
+  const encryptedMsg = await contract.getParticipantLeftMsg(to, msgIdx);
+  addConnectionRequestToElementList(
+    name,
+    address,
+    await decryptTokenFrom(from, encryptedMsg)
+  );
+  sendConnectionRequestNotification(name);
+}
+async function onAnswerAcquired(to, from) {
+  const contract = await getContract();
+
+  console.log("Got answer event");
+  console.log(to);
+
+  const address = from; //
+  const name = await contract.getParticipantNameByAddress(address);
+
+  const chatSession = chatSessionsPerContactAddress.get(address);
+  if (typeof chatSession == "undefined") {
+    console.log(
+      "Invalid address. Answer is not expected since connection was not offered."
+    );
+    return;
+  }
+
+  const encryptedAnswer =
+    await contract.getConnectionRequestAnswerTokenByAddresses(
+      accountAddress,
+      address
+    );
+  const answerRawBlob = await decryptTokenFrom(from, encryptedAnswer);
+
+  const answerRaw = answerRawBlob; // to unpack desc TODO
+
+  console.log("Type of answer raw", typeof answerRaw);
+  console.log("Answer raw", answerRaw);
+  let answer = JSON.parse(answerRaw);
+  console.log("Got answer, setting remote: " + answerRaw);
+  let answerDesc = new RTCSessionDescription(answer);
+  await chatSession.peerConnection.setRemoteDescription(answerDesc);
+
+  selectChatWith(chatSession.oppositeAddr);
+}
+
 /**
  * Initialize handlers for contract events: OfferMade and AnswerMade.
  * These handlers perform WebRTC connection negotiation steps.
+ * @param {*} handlers onOfferAcquired, onAnswerAcquired
  */
-async function initializeSignalingHandlers() {
+async function initializeSignalingHandlers(handlers) {
   const contract = await getContract();
 
   const requestsFilter = contract.filters.OfferMade(accountAddress, null);
   const answersFilter = contract.filters.AnswerMade(accountAddress, null);
 
   contract.on(requestsFilter, async function (to, from, idx) {
-    console.log("Got request event");
-    console.log(to);
-
-    const address = from;
-    const name = await contract.getParticipantNameByAddress(address);
-    const encryptedMsg = await contract.getParticipantLeftMsg(to, idx);
-    addConnectionRequestToElementList(
-      name,
-      address,
-      await decryptTokenFrom(from, encryptedMsg)
-    );
-    sendConnectionRequestNotification(name);
+    handlers.onOfferAcquired(to, from, idx);
   });
   contract.on(answersFilter, async function (to, from) {
-    console.log("Got answer event");
-    console.log(to);
-
-    const address = from; //
-    const name = await contract.getParticipantNameByAddress(address);
-
-    const chatSession = chatSessionsPerContactAddress.get(address);
-    if (typeof chatSession == "undefined") {
-      console.log(
-        "Invalid address. Answer is not expected since connection was not offered."
-      );
-      return;
-    }
-
-    const encryptedAnswer =
-      await contract.getConnectionRequestAnswerTokenByAddresses(
-        accountAddress,
-        address
-      );
-    const answerRawBlob = await decryptTokenFrom(from, encryptedAnswer);
-
-    const answerRaw = answerRawBlob; // to unpack desc TODO
-
-    console.log("Type of answer raw", typeof answerRaw);
-    console.log("Answer raw", answerRaw);
-    let answer = JSON.parse(answerRaw);
-    console.log("Got answer, setting remote: " + answerRaw);
-    let answerDesc = new RTCSessionDescription(answer);
-    await chatSession.peerConnection.setRemoteDescription(answerDesc);
-
-    selectChatWith(chatSession.oppositeAddr);
+    handlers.onAnswerAcquired(to, from);
   });
 }
 
@@ -748,7 +845,12 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
     nickname + "-contact-address-copy-col"
   );
 
-  insertCopyableAddressElement(addressCopyColEl, addr, "contact", 0);
+  CustomElements.insertCopyableAddressElement(
+    addressCopyColEl,
+    addr,
+    "contact",
+    0
+  );
 
   document.getElementById(nickname + "-request-button").onclick =
     async function () {
@@ -766,7 +868,15 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
         },
       });
 
-      requestConnectionTo(addr, subject);
+      const chatSession = await requestConnectionTo(
+        addr,
+        subject,
+        chatSessionCallbacks
+      );
+      chatSessionsPerContactAddress.set(chatSession.oppositeAddr, chatSession);
+
+      addChatToElementListByAddressIfNotExists(chatSession.oppositeAddr);
+      selectChatWith(chatSession.oppositeAddr);
 
       contactsListElement.style.display = "none";
     };
@@ -1124,7 +1234,7 @@ async function setSignedInState(name) {
   accountName = name; //to redesign with multiple owned names in mind
   encKeys = encKeys; //enc keys should be initialized for correct sign in
 
-  await initializeSignalingHandlers();
+  await initializeSignalingHandlers(contractEventHandlers);
 }
 /**
  * Starts sign in routine and returns true, if Metamask address is registered, otherwise returns false
@@ -1233,8 +1343,11 @@ async function onTrySignIn() {
  * Makes encrypted WebRTC answer and writes it to the contract
  * Is only applicable if <address> offered connection(the corresponing WebRTC offer is written to the contract).
  * @param {string} address Ethereum address
+ * @param {*} callbacks onPeerConnectionError() - happens if RTCPeerConnection fails to construct,
+ *  logChat(from, msg, chatSession) - logs info in the chat window,
+ *  onAnsweringSideConnectionEstablished(chatSession) - happens only on the answering side when connection is established
  */
-async function answerConnectionRequest(address) {
+async function answerConnectionRequest(address, callbacks) {
   console.log(`connected to ${address}`);
 
   const contract = await getContract();
@@ -1249,28 +1362,40 @@ async function answerConnectionRequest(address) {
 
   console.log(typeof offer);
   console.log("offer: " + offer);
-  let chatSession = new ChatSession(address, accountAddress, null, offer);
-  await initChatSession(chatSession, offer);
-  chatSessionsPerContactAddress.set(address, chatSession);
+  let chatSession = new ChatSession(
+    address,
+    accountAddress,
+    callbacks,
+    null,
+    offer
+  );
+  await initChatSession(chatSession, callbacks, offer);
 
-  addChatToElementListByAddressIfNotExists(address);
-  selectChatWith(address);
-  logChat(null, "Answering connection request...", chatSession);
+  callbacks.logChat(null, "Answering connection request...", chatSession);
+
+  return chatSession;
 }
 /**
  * Makes encrypted WebRTC offer and writes it to the contract
  * @param {string} address Ethereum address
+ * @param {*} callbacks onPeerConnectionError() - happens if RTCPeerConnection fails to construct,
+ *  logChat(from, msg, chatSession) - logs info in the chat window,
+ *  onAnsweringSideConnectionEstablished(chatSession) - happens only on the answering side when connection is established
  */
-async function requestConnectionTo(address, subject) {
-  let chatSession = new ChatSession(accountAddress, address, subject);
-  await initChatSession(chatSession);
-  chatSessionsPerContactAddress.set(address, chatSession);
+async function requestConnectionTo(address, subject, callbacks) {
+  let chatSession = new ChatSession(
+    accountAddress,
+    address,
+    callbacks,
+    subject
+  );
+  await initChatSession(chatSession, callbacks);
 
-  addChatToElementListByAddressIfNotExists(address);
-  selectChatWith(address);
-  logChat(null, "Requested connection...", chatSession);
+  callbacks.logChat(null, "Requested connection...", chatSession);
 
   console.log(`requested connection to ${address}`);
+
+  return chatSession;
 }
 /**
  * Called in app clickable elements events. Shows alerts if not all requirements are met.
@@ -1509,10 +1634,12 @@ async function onAddContact() {
 function onChatSessionMsg(chatSession) {
   if (chatSession != currentChatSession) {
     chatSelectArrow.classList.add("arrow-new-notification");
-
-    document
-      .getElementById(chatSession.oppositeAddr + "-chat-list-div")
-      .classList.add("new-notification");
+    const chatEl = document.getElementById(
+      chatSession.oppositeAddr + "-chat-list-div"
+    );
+    if (chatEl != null) {
+      chatEl.classList.add("new-notification");
+    }
   }
 }
 /**
@@ -1533,18 +1660,14 @@ function sendMsg(chatSession) {
 
   const msg = msgInputElement.value;
 
-  console.log(JSON.stringify(chatSession));
-  console.log(JSON.stringify(chatSession.peerConnection));
-  console.log(JSON.stringify(chatSession.dataChannel));
-  console.log(chatSession.peerConnection.ondatachannel);
-  chatSession.dataChannel.send(JSON.stringify({ message: msg }));
+  chatSession.sendMsg(msg);
 
   logChat(accountName, msg, chatSession);
   msgInputElement.value = "";
 }
 /**
  * Logs message in the UI part
- * @param {string} from Participant name or <null> if system message
+ * @param {string} from Participant name or "null" if system message
  * @param {string} msg Message
  * @param {ChatSession} chatSession
  */

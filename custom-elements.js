@@ -37,3 +37,6 @@ export function insertCopyableAddressElement(parent, address, semantic, uniq) {
     }, 2500);
   };
 }
+
+//export let CustomElements;
+//CustomElements.insertCopyableAddressElement = insertCopyableAddressElement;
