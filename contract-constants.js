@@ -1,8 +1,10 @@
+import { ethers } from "./ethers-5.1.esm.min.js";
+
 const hhContractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const goerliContractAddress = "0xb9571544Fa2EcdE4b3E32962FBBa392D48b46985"; //old
 const avaxTstContractAddress = "0x6e1c79EE3360f02EfCda5015fBD80d8052Abe644"; //old "0x6710EA1caffb03d51E8A3c32e14965d92AD30EC1";
-export const contractAddress = hhContractAddress; //"0x5FbDB2315678afecb367f032d93F642f64180aa3";
-export const abi = [
+const contractAddress = hhContractAddress; //"0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const abi = [
   {
     inputs: [],
     stateMutability: "nonpayable",
@@ -496,3 +498,13 @@ export const abi = [
     type: "function",
   },
 ];
+
+/**
+ * Returns signaling and registration smart-contract
+ * @returns ethers.Contract
+ */
+export async function getContract() {
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
+  const signer = provider.getSigner();
+  return new ethers.Contract(contractAddress, abi, signer);
+}
