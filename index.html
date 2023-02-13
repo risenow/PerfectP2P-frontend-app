@@ -9,19 +9,15 @@
     <body class="page-wrapper">
         <div id="overlay" class="overlay"></div>
         <div id="registration-window" class="registration-popup">
-            <!--<div class="registration-el" style="color:rgb(0, 0, 0); margin-top: 5%; font-size: medium;">You don't have an
-                account yet.</div> !-->
             <div class="center">
                 <h1 style="color: rgb(36, 36, 36); margin-top: 10%">Sign Up</h1>
             </div>
 
-            <!--<label class="registration-el" for="username">Username</label>!-->
             <p>
                 <input class="registration-el registration-input" type="text"
                     name="username" id="username-input"
                     placeholder="Username" />
             </p>
-            <!--<label class="registration-el" for="pwd">Password(for key encryption)</label>!-->
             <p>
                 <input class="registration-el registration-input"
                     type="password" name="pwd" id="password-input"
@@ -68,9 +64,9 @@
                         <div class="dropdown-content"
                             id="contacts-dropdown-list">
                             <div class="dropdown-content-row"
-                                style="align-items: center"
+                                style="align-items: center; box-sizing: content-box;"
                                 id="add-contact-contact-list-element">
-                                <div class="dropdown-content-row-major-col">
+                                <div class="dropdown-content-row-major-col" style="width:70%;">
                                     <div style="
                                         height: 100%;
                                         display: flex;
@@ -82,18 +78,18 @@
                                             id="nickname-input"
                                             placeholder="Nick or address..."
                                             style="width:
-                                            100%; height: 30px; margin-left: 4%;
+                                            100%; height: 30px; margin-left: 0%;
                                             padding-left: 3%;"
                                             />
                                     </div>
                                 </div>
-                                <div class="dropdown-content-row-minor-col">
+                                <div class="dropdown-content-row-major-col" style="width: 30%;">
                                     <!--<span style="align-items: center;"> -->
                                     <button id="add-contact-button"
                                         class="dropdown-button" style="
-                                        flex: none;
+                                        flex:none;
                                         height: 60px;
-                                        width: 85%;
+                                        width: 100%;
                                         text-align: center;
                                         font-size: medium;
                                         ">
@@ -227,7 +223,7 @@
           <div class="dropdown-content-row-major-col" id="<%=address%>-connection-address-copy-col" style="width:17%">
           </div>
           <div class="dropdown-content-row-major-col" style="width:40%">
-            <span style="cursor:pointer;overflow-wrap: nowrap;" id="<%=address%>-connection-shortmsg">Subject: <em><%=msg%></em></span>
+            <span style="overflow-wrap: nowrap;" id="<%=address%>-connection-shortmsg">Subject: <em><%=msg%></em></span>
           </div>
           <div class="dropdown-content-row-minor-col" style="width:18%">
               <button id="<%=username%>-respond-button" class="dropdown-button" style="flex:none;height:60px;width: 100%;text-align: center;font-size: medium;">Accept</button>

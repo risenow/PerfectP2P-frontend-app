@@ -23,11 +23,12 @@ def start_server():
         })
 
     sys.stdout.write(f'Serving at localhost:${PORT}...')
-    httpd = socketserver.TCPServer(("", PORT), Handler)
+    httpd = socketserver.ThreadingTCPServer(("", PORT), Handler)
     httpd.serve_forever()
 
 t=Thread(target=start_server)
 t.start()
+
 time.sleep(4)
 
 webbrowser.open('http://localhost:1337/', new=1)

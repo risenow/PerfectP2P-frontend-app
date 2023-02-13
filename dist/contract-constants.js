@@ -1,8 +1,10 @@
+import { ethers } from "./ethers-5.1.esm.min.js";
+
 const hhContractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-const goerliContractAddress = "0xb9571544Fa2EcdE4b3E32962FBBa392D48b46985";
-const avaxTstContractAddress = "0x6710EA1caffb03d51E8A3c32e14965d92AD30EC1";
-export const contractAddress = avaxTstContractAddress; //"0x5FbDB2315678afecb367f032d93F642f64180aa3";
-export const abi = [
+const goerliContractAddress = "0xb9571544Fa2EcdE4b3E32962FBBa392D48b46985"; //old
+const avaxTstContractAddress = "0x6e1c79EE3360f02EfCda5015fBD80d8052Abe644"; //old "0x6710EA1caffb03d51E8A3c32e14965d92AD30EC1";
+const contractAddress = hhContractAddress; //"0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const abi = [
   {
     inputs: [],
     stateMutability: "nonpayable",
@@ -20,7 +22,17 @@ export const abi = [
   },
   {
     inputs: [],
+    name: "ChatSignalingMedium__EncKeyTooLong",
+    type: "error",
+  },
+  {
+    inputs: [],
     name: "ChatSignalingMedium__NameAlreadyRegistered",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "ChatSignalingMedium__NameTooLong",
     type: "error",
   },
   {
@@ -61,6 +73,12 @@ export const abi = [
         internalType: "address",
         name: "from",
         type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "leftMsgIdx",
+        type: "uint256",
       },
     ],
     name: "OfferMade",
@@ -183,6 +201,35 @@ export const abi = [
   {
     inputs: [
       {
+        internalType: "bytes32",
+        name: "to",
+        type: "bytes32",
+      },
+      {
+        internalType: "bytes32",
+        name: "from",
+        type: "bytes32",
+      },
+    ],
+    name: "getConnectionRequestTokenWithSubject",
+    outputs: [
+      {
+        internalType: "bytes",
+        name: "requestToken",
+        type: "bytes",
+      },
+      {
+        internalType: "uint256",
+        name: "subjectMsgIdx",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
         internalType: "address",
         name: "addr",
         type: "address",
@@ -213,6 +260,97 @@ export const abi = [
         internalType: "address",
         name: "",
         type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "msgIdx",
+        type: "uint256",
+      },
+    ],
+    name: "getParticipantLeftMsg",
+    outputs: [
+      {
+        internalType: "bytes",
+        name: "",
+        type: "bytes",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "msgIdx",
+        type: "uint256",
+      },
+    ],
+    name: "getParticipantLeftMsgSenderAddress",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "msgIdx",
+        type: "uint256",
+      },
+    ],
+    name: "getParticipantLeftMsgTimestamp",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+    ],
+    name: "getParticipantLeftMsgsCount",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
       },
     ],
     stateMutability: "view",
@@ -268,6 +406,11 @@ export const abi = [
         name: "requestToken",
         type: "bytes",
       },
+      {
+        internalType: "bytes",
+        name: "subjectMsg",
+        type: "bytes",
+      },
     ],
     name: "initiateConnection",
     outputs: [],
@@ -283,6 +426,30 @@ export const abi = [
       },
     ],
     name: "isParticipantAddress",
+    outputs: [
+      {
+        internalType: "bool",
+        name: "",
+        type: "bool",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "msgIdx",
+        type: "uint256",
+      },
+    ],
+    name: "isParticipantLeftMsgAnswered",
     outputs: [
       {
         internalType: "bool",
@@ -331,3 +498,13 @@ export const abi = [
     type: "function",
   },
 ];
+
+/**
+ * Returns signaling and registration smart-contract
+ * @returns ethers.Contract
+ */
+export async function getContract() {
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
+  const signer = provider.getSigner();
+  return new ethers.Contract(contractAddress, abi, signer);
+}

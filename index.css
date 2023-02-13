@@ -77,14 +77,14 @@ body {
   position: absolute;
   width: 180%;
   max-height: 300px;
-  overflow-x: hidden;
+  /*overflow-x: hidden;*/
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
   background-color: #ffffffff;
   z-index: 500;
 
   top: 0%;
   left: 100%;
-  padding-right: 5px;
+  padding-right: 0px;
   /*border:1px solid black;*/
 
 }
@@ -100,10 +100,10 @@ body {
   flex-wrap: nowrap;
   width: 100%;
   color: #000000;
-  padding: 20px;
+  padding: 0px;
   text-decoration: none;
   cursor: default;
-  height: 20px;
+  height: 60px;
   font-size: large;
   opacity: 1;
   z-index: 9;
@@ -122,8 +122,8 @@ body {
   width: 70%;
   flex: 0 0 auto;
 
-
-  align-items: stretch;
+  align-items: center;
+  
 }
 
 .dropdown-content-row-minor-col {

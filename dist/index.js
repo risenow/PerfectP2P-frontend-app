@@ -1,14 +1,34 @@
 import "./ejs.min.js";
-import { ethers } from "./ethers-5.1.esm.min.js";
-import { contractAddress, abi } from "./contract-constants.js";
-import "./elliptic.min.js";
 
-const UseTokenCompression = true;
-const tokenAESIVSize = 64;
-const chatAESIVSize = 128;
+import { getContract } from "./contract-constants.js";
+import * as CustomElements from "./custom-elements.js";
+import { ChatEncryption } from "./chat-encryption.js";
+import { ChatManager } from "./chat.js";
+import "./elliptic.min.js";
 
 let loggedIn = false;
 const bodyElement = document.body;
+
+//callbacks
+const chatSessionCallbacks = {
+  onPeerConnectionError: onPeerConnectionError,
+  logChat: logChat,
+  onAnsweringSideConnectionEstablished: (chatSession) => {
+    selectChatWith(chatSession.oppositeAddr);
+  },
+  onInvalidDataChannelInSendMsg: () => {
+    Swal.fire({
+      title: "Error",
+      text: "Connection is still at negotiating stage or failed!",
+      icon: "error",
+      confirmButtonText: "Ok",
+    });
+  },
+};
+const contractEventHandlers = {
+  onOfferAcquired: onOfferAcquired,
+  onAnswerAcquired: onAnswerAcquired,
+};
 
 //windows
 const overlayElement = document.getElementById("overlay");
@@ -28,6 +48,12 @@ const showConnectionRequestsButton = document.getElementById(
 const showContactsButton = document.getElementById("contacts-dropdown-button");
 const connectionRequestsListElement = document.getElementById(
   "connection-requests-dropdown-list"
+);
+const showAnsweringMachineMsgsButton = document.getElementById(
+  "left-msgs-dropdown-button"
+);
+const answeringMachineMsgsListElement = document.getElementById(
+  "left-msgs-dropdown-list"
 );
 const contactsListElement = document.getElementById("contacts-dropdown-list");
 const addContactButtonElement = document.getElementById("add-contact-button");
@@ -69,21 +95,32 @@ msgInputElement.addEventListener("keypress", function (event) {
   }
 });
 document.onclick = function (event) {
+  const swalInOnScreen =
+    document.getElementsByClassName("swal2-container").length != 0;
+
   if (
+    !swalInOnScreen &&
     !contactsListElement.contains(event.target) &&
     !showContactsButton.contains(event.target)
   ) {
-    console.log("close contacts!");
     contactsListElement.style.display = "none";
   }
   if (
+    !swalInOnScreen &&
     !connectionRequestsListElement.contains(event.target) &&
     !showConnectionRequestsButton.contains(event.target)
   ) {
-    console.log("close conn reqs!");
     connectionRequestsListElement.style.display = "none";
   }
+  if (
+    !swalInOnScreen &&
+    !answeringMachineMsgsListElement.contains(event.target) &&
+    !showAnsweringMachineMsgsButton.contains(event.target)
+  ) {
+    answeringMachineMsgsListElement.style.display = "none";
+  }
 };
+showAnsweringMachineMsgsButton.onclick = showAnsweringMachineMsgsList;
 
 //state
 let contactsAddresses = [];
@@ -95,146 +132,11 @@ let encKeys = null;
 let passwordedPrKey;
 let passwordedPrKeyPromise = null;
 const correctDecryptionSignature = "correct output";
-
-let chatSessionsPerContactAddress = new Map();
+/**current chat */
 let currentChatSession = null;
+let chatEncryption = null;
+let chatManager = null;
 
-/**
- * Converts bytes array to CryptoJS word array
- * @param {Array.<Uint8>} ba array of bytes
- * @returns {CryptoJS.lib.WordArray}
- */
-function byteArrayToWordArray(ba) {
-  var wa = [],
-    i;
-  for (i = 0; i < ba.length; i++) {
-    const currIndex = (i / 4) | 0;
-    if (wa.length == currIndex) wa.push(0);
-    wa[(i / 4) | 0] += ba[i] << (24 - 8 * (i % 4));
-  }
-
-  return CryptoJS.lib.WordArray.create(wa, ba.length);
-}
-/**
- * Deconstructs int in 4(max) bytes
- * @param {int} word 32-bit int
- * @param {int} length sig bytes
- * @returns
- */
-function wordToByteArray(word, length) {
-  var ba = [],
-    i,
-    xFF = 0xff;
-  if (length > 0) ba.push((word >>> 24) & xFF);
-  if (length > 1) ba.push((word >>> 16) & xFF);
-  if (length > 2) ba.push((word >>> 8) & xFF);
-  if (length > 3) ba.push((word >>> 0) & xFF);
-
-  return ba;
-}
-/**
- * Transforms CryptoJS word array to byte array
- * @param {Array.<CryptoJS.lib.WordArray>} wordArray
- * @param {int} length may be get rid of it?
- * @returns {Array.<UInt8>}
- */
-function wordArrayToByteArray(wordArray, length) {
-  if (
-    wordArray.hasOwnProperty("sigBytes") &&
-    wordArray.hasOwnProperty("words")
-  ) {
-    length = wordArray.sigBytes;
-    wordArray = wordArray.words;
-  }
-
-  var result = [],
-    bytes,
-    i = 0;
-  while (length > 0) {
-    bytes = wordToByteArray(wordArray[i], Math.min(4, length));
-    length -= bytes.length;
-    result.push(bytes);
-    i++;
-  }
-  return [].concat.apply([], result);
-}
-
-/**
- * Encrypts token by ECIES(ECDH shared key => AES)
- * @param {string} to Ethereum address
- * @param {string} token
- * @returns {Array.<UInt8>}
- */
-async function encryptTokenTo(to, token) {
-  const contract = await getContract();
-
-  const receiverPublicEncKey = (await contract.getEncryptionKeyByAddress(to))
-    .toString()
-    .substring(2);
-
-  const ec = new elliptic.ec("secp256k1");
-  const sharedKey = encKeys
-    .derive(ec.keyFromPublic(receiverPublicEncKey, "hex").getPublic())
-    .toString(16);
-  const sharedKeyBytes = CryptoJS.enc.Hex.parse(sharedKey);
-
-  const iv = CryptoJS.lib.WordArray.random(tokenAESIVSize / 8); //arg in bytes
-
-  const encryptedToken = CryptoJS.AES.encrypt(
-    token, //attach signature?
-    sharedKeyBytes,
-    { iv: iv, mode: CryptoJS.mode.CTR, padding: CryptoJS.pad.AnsiX923 }
-  ); //add to bytes
-
-  let len1 = 0,
-    len2 = 0;
-  const bytesRes = wordArrayToByteArray(iv, len1).concat(
-    wordArrayToByteArray(encryptedToken.ciphertext, len2)
-  );
-
-  return bytesRes;
-}
-
-/**
- * Decrypts token by ECIES(ECDH shared key => AES)
- * @param {string} from Ethereum address
- * @param {string} token hex bytes string(ethers style)
- * @returns {string} ready to use token
- */
-async function decryptTokenFrom(from, token) {
-  const contract = await getContract();
-
-  const tokenByteStr = token.substring(2);
-  const tokenWordArray = CryptoJS.enc.Hex.parse(tokenByteStr); // words array
-
-  const iv = CryptoJS.lib.WordArray.create(
-    tokenWordArray.words.slice(0, tokenAESIVSize / 32)
-  );
-  const tokenWords = CryptoJS.lib.WordArray.create(
-    //token
-    tokenWordArray.words.slice(tokenAESIVSize / 32)
-  );
-  iv.words[0] = iv.words[0] >>> 0; //convert to unsigned
-  iv.words[1] = iv.words[1] >>> 0;
-
-  const receiverPublicEncKey = (await contract.getEncryptionKeyByAddress(from))
-    .toString()
-    .substring(2);
-
-  const ec = new elliptic.ec("secp256k1");
-  const sharedKey = encKeys
-    .derive(ec.keyFromPublic(receiverPublicEncKey, "hex").getPublic())
-    .toString(16);
-  const sharedKeyBytes = CryptoJS.enc.Hex.parse(sharedKey);
-
-  const decryptedToken = CryptoJS.AES.decrypt(
-    { ciphertext: tokenWords },
-    sharedKeyBytes,
-    { iv: iv, mode: CryptoJS.mode.CTR, padding: CryptoJS.pad.AnsiX923 }
-  ).toString(CryptoJS.enc.Utf8);
-
-  return decryptedToken;
-}
 /**
  * Currently only removes local candidates
  * TODO: to compress ip adresses to 32bit number, mb replace candidates strings byt
@@ -246,228 +148,14 @@ function minifyDesc(desc) {
 
   // TODO
 }
-/**
- * Is invoked after WebRTC offer generation. Ecnrypts it and sends by contract to the counteragent(interlocutor)
- * @param {string} token
- * @param {string} to Ethereum address
- */
-async function onRequestTokenGenerated(token, to) {
-  console.log(`Request token aquired, offer is being sent: ${token}`);
 
-  const contract = await getContract();
-
-  const nameHash = await contract.getParticipantNameHashByAddress(to);
-
-  const tokenBlob = token; //to pack desc here (TODO)
-  const encryptedToken = await encryptTokenTo(to, tokenBlob);
-
-  const txResp = await contract.initiateConnection(nameHash, encryptedToken);
-  await txResp.wait(1);
-}
-/**
- * Is invoked after WebRTC answer generation. Ecnrypts it and sends by contract to the counteragent(interlocutor)
- * @param {string} token
- * @param {string} to Ethereum address
- */
-async function onRequestAnswerTokenGenerated(token, to) {
-  console.log(`Answer token aquired, answer is being sent: ${token}`);
-
-  const contract = await getContract();
-
-  const nameHash = await contract.getParticipantNameHashByAddress(to);
-
-  const tokenBlob = token; // to pack desc (TODO)
-
-  const encryptedToken = await encryptTokenTo(to, tokenBlob);
-
-  const txResp = await contract.acceptConnection(nameHash, encryptedToken);
-  await txResp.wait(1);
-}
-
-/**
- * Sets up a peer connection with all the event handlers
- * @param {ChatSession} chatSession chat session that the RTCPeerConnection is constructed for
- * @param {*} isOfferSide if the client offers connection
- * @returns RTCPeerConnection
- */
-function makePeerConnection(chatSession, isOfferSide) {
-  let peerConnection = undefined;
-  let configuration = {
-      //iceServers: [{ url: "stun:stun.gmx.net" }],
-      iceServers: [{ url: "stun:stun.l.google.com:19302" }],
-    },
-    con = { optional: [{ DtlsSrtpKeyAgreement: true }] };
-  try {
-    peerConnection = new RTCPeerConnection(configuration, con);
-  } catch (err) {
-    Swal.fire({
-      title: "Error!",
-      text: "Cannot create peer connection!",
-      icon: "error",
-      confirmButtonText: "Cool",
-    });
-  }
-
-  peerConnection.onicecandidate = async function (e) {
-    if (e.candidate == null) {
-      if (isOfferSide) {
-        await onRequestTokenGenerated(
-          JSON.stringify(peerConnection.localDescription),
-          chatSession.answerAddr
-        );
-      } else {
-        await onRequestAnswerTokenGenerated(
-          JSON.stringify(peerConnection.localDescription),
-          chatSession.offerAddr
-        );
-      }
-    }
-  };
-
-  peerConnection.onconnectionstatechange = function (event) {
-    switch (peerConnection.connectionState) {
-      case "new":
-      case "checking":
-        logChat(null, "Connecting...", chatSession);
-        break;
-      case "connecting":
-        logChat(null, "Connecting...", chatSession);
-        break;
-      case "connected":
-        logChat(null, "Connection established!", chatSession);
-        break;
-      case "disconnected":
-        logChat(null, "Oops, disconnected!", chatSession);
-        break;
-      case "closed":
-        logChat(null, "Oops, disconnected!", chatSession);
-        break;
-      case "failed":
-        logChat(null, "Connection failed!", chatSession);
-        break;
-      default:
-        console.log(peerConnection.connectionState);
-        logChat(null, "Looks like something gone wrong!", chatSession);
-        break;
-    }
-  };
-  //peerConnection.oniceconnectionstatechange = ;
-
-  return peerConnection;
-}
-/**
- * Object that handles a chat state(1 object per chat). Also manages a corresponding WebRTC connection.
- * @param {string} offerAddr Ethereum address
- * @param {string} answerAddr Ethereum address
- * @param {string} offer WebRTC offer
- */
-function ChatSession(offerAddr, answerAddr, offer = null) {
-  const isOfferSide = offer == null;
-
-  let chatSession = this;
-
-  this.answerAddr = answerAddr;
-  this.offerAddr = offerAddr;
-  this.oppositeAddr = isOfferSide ? answerAddr : offerAddr;
-
-  this.dataChannel = null;
-
-  this.chatHistory = "";
-  this.unreadMsgs = 0;
-
-  this.peerConnection = makePeerConnection(this, isOfferSide);
-
-  this.changed = false;
-}
-
-/**
- * Can't make the constructor async. Should be called after ChatSession object is constructed.
- * Initializes datachannel and most of the event handlers.
- * @param {ChatSession} chatSession
- * @param {string} offer WebRTC offer from the potential interlocutor
- */
-async function initChatSession(chatSession, offer = null) {
-  var sdpConstraints = {
-    optional: [],
-  };
-
-  chatSession.changed = true;
-
-  let isOfferSide = chatSession.answerAddr == chatSession.oppositeAddr;
-  let peerConnection = chatSession.peerConnection;
-
-  const dcOnMessage = async function (msg) {
-    console.log("got message: " + msg.data);
-
-    const contract = await getContract();
-
-    const name = await contract.getParticipantNameByAddress(
-      chatSession.oppositeAddr
-    );
-
-    let textMsg = msg.data;
-    const msgStruct = JSON.parse(msg.data);
-    if (typeof msgStruct.message != "undefined") {
-      textMsg = msgStruct.message;
-    }
-
-    console.log("got message processed: " + textMsg);
-
-    logChat(name, textMsg, chatSession);
-  };
-
-  if (isOfferSide) {
-    console.log("initing offering part");
-
-    chatSession.dataChannel = chatSession.peerConnection.createDataChannel(
-      chatSession.offerAddr + chatSession.answerAddr,
-      {
-        reliable: true,
-      }
-    );
-    chatSession.dataChannel.onmessage = dcOnMessage;
-
-    await chatSession.peerConnection.createOffer(
-      async function (desc) {
-        await chatSession.peerConnection.setLocalDescription(
-          desc,
-          function () {},
-          function () {}
-        );
-      },
-      function () {},
-      sdpConstraints
-    );
-  } else {
-    console.log("initing answering part");
-
-    var offerDesc = new RTCSessionDescription(JSON.parse(offer));
-    await chatSession.peerConnection.setRemoteDescription(offerDesc);
-    await chatSession.peerConnection.createAnswer(
-      async function (answerDesc) {
-        console.log("Setting local description");
-        await chatSession.peerConnection.setLocalDescription(answerDesc);
-      },
-      function () {},
-      sdpConstraints
-    );
-
-    console.log("initing answering part 2");
-
-    chatSession.peerConnection.ondatachannel = function (event) {
-      console.log("Got data channel!");
-
-      chatSession.dataChannel = event.channel;
-      chatSession.dataChannel.onmessage = dcOnMessage;
-
-      selectChatWith(chatSession.oppositeAddr);
-
-      console.log(chatSession.dataChannel);
-      console.log(event);
-    };
-  }
-
-  console.log(JSON.stringify(chatSession));
+function onPeerConnectionError() {
+  Swal.fire({
+    title: "Error!",
+    text: "Cannot create peer connection!",
+    icon: "error",
+    confirmButtonText: "Cool",
+  });
 }
 
 /**
@@ -501,7 +189,7 @@ function clearElement(element) {
  * @returns
  */
 async function selectChatWith(address) {
-  let activeChatSession = chatSessionsPerContactAddress.get(address);
+  let activeChatSession = chatManager.getSession(address);
   if (typeof activeChatSession == undefined) {
     console.log("Selected invalid chat");
     return;
@@ -522,28 +210,121 @@ async function selectChatWith(address) {
   chatLabelElement.firstChild.nodeValue = name;
 }
 
-function addConnectionRequestToElementList(nickname, address) {
+/**
+ *
+ * @param {string} nickname
+ * @param {string} address Ethereum address
+ * @param {string} msg
+ * @param {number} to make different ids for elements
+ */
+function addAnsweringMachineMsgToElementList(nickname, address, msg, uniq) {
+  const answeringMachineMsgsListElElTemplate = document.querySelector(
+    "#left-msgs-list-element-ejs-template"
+  ).innerHTML;
+
+  //showAnsweringMachineMsgsButton.classList.add("new-notification");
+  const shortMsg = msg.substring(0, 40) + (msg.length > 41 ? ".." : "");
+
+  answeringMachineMsgsListElement.insertAdjacentHTML(
+    "beforeend",
+    ejs.compile(answeringMachineMsgsListElElTemplate)({
+      username: escapeHtml(nickname),
+      shortAddress: "0x.." + address.substring(37, 37 + 5),
+      address: address,
+      msg: shortMsg,
+      fullMsg: msg,
+      uniq: uniq,
+    })
+  );
+
+  if (msg.length > 41) {
+    const shortMsgEl = document.getElementById(
+      uniq.toString() + "-" + address + "-left-msgs-shortmsg"
+    );
+
+    shortMsgEl.classList.add("pointer-cursor");
+
+    shortMsgEl.onclick = function () {
+      Swal.fire({
+        title: "Subject",
+        text: msg,
+        customClass: { title: "swal-title swal-title-for-subject" },
+      });
+    };
+  }
+}
+
+/**
+ * UI reaction to new connection request
+ * @param {string} nickname
+ * @param {string} address Ethrereum address
+ * @param {string} subject Subject of requested chat
+ */
+function addConnectionRequestToElementList(nickname, address, subject) {
+  const oldRequestEl = document.getElementById(
+    `${address}-connection-list-div`
+  );
+  if (oldRequestEl != null) {
+    oldRequestEl.remove();
+  }
+
   const connectionRequestsListElElTemplate = document.querySelector(
     "#connection-request-list-element-ejs-template"
   ).innerHTML;
 
   showConnectionRequestsButton.classList.add("new-notification");
 
+  const shortMsg = subject.substring(0, 20) + (subject.length > 21 ? ".." : "");
   connectionRequestsListElement.insertAdjacentHTML(
     "beforeend",
     ejs.compile(connectionRequestsListElElTemplate)({
       username: escapeHtml(nickname),
       address: address,
+      msg: shortMsg,
+      fullMsg: subject,
     })
   );
 
-  document.getElementById(nickname + "-respond-button").onclick = function () {
-    answerConnectionRequest(address);
+  const copyAddressCol = document.getElementById(
+    `${address}-connection-address-copy-col`
+  );
 
-    document.getElementById(address + "-connection-list-div").remove();
+  CustomElements.insertCopyableAddressElement(
+    copyAddressCol,
+    address,
+    "connection",
+    0
+  );
 
-    connectionRequestsListElement.style.display = "none";
-  };
+  if (subject.length > 21) {
+    const shortMsgEl = document.getElementById(
+      address + "-connection-shortmsg"
+    );
+
+    shortMsgEl.classList.add("pointer-cursor");
+
+    shortMsgEl.onclick = function () {
+      Swal.fire({
+        title: "Subject",
+        text: subject,
+      });
+    };
+  }
+
+  document.getElementById(nickname + "-respond-button").onclick =
+    async function () {
+      const chatSession = await chatManager.answerConnectionRequest(
+        address,
+        chatSessionCallbacks
+      );
+
+      addChatToElementListByAddressIfNotExists(chatSession.oppositeAddr);
+      selectChatWith(chatSession.oppositeAddr);
+
+      document.getElementById(address + "-connection-list-div").remove();
+
+      connectionRequestsListElement.style.display = "none";
+    };
 }
 
 /**
@@ -560,64 +341,35 @@ function sendConnectionRequestNotification(name) {
   });
 }
 /**
- * Initialize handlers for contract events: OfferMade and AnswerMade.
- * These handlers perform WebRTC connection negotiation steps.
+ *
+ * @param {string} to Ethereum address
+ * @param {string} from Ethereum address
+ * @param {number} msgIdx
  */
-async function initializeSignalingHandlers() {
+async function onOfferAcquired(to, from, msgIdx) {
   const contract = await getContract();
 
-  const requestsFilter = contract.filters.OfferMade(accountAddress, null);
-  const answersFilter = contract.filters.AnswerMade(accountAddress, null);
+  console.log("Got request event");
+  console.log(to);
 
-  contract.on(requestsFilter, async function (to, from) {
-    console.log("Got request event");
-    console.log(to);
-
-    const address = from;
-    const name = await contract.getParticipantNameByAddress(address);
-
-    addConnectionRequestToElementList(name, address);
-    sendConnectionRequestNotification(name);
-  });
-  contract.on(answersFilter, async function (to, from) {
-    console.log("Got answer event");
-    console.log(to);
-
-    const address = from; //
-    const name = await contract.getParticipantNameByAddress(address);
-
-    const chatSession = chatSessionsPerContactAddress.get(address);
-    if (typeof chatSession == "undefined") {
-      console.log(
-        "Invalid address. Answer is not expected since connection was not offered."
-      );
-      return;
-    }
-
-    const encryptedAnswer =
-      await contract.getConnectionRequestAnswerTokenByAddresses(
-        accountAddress,
-        address
-      );
-    const answerRawBlob = await decryptTokenFrom(from, encryptedAnswer);
-
-    const answerRaw = answerRawBlob; // to unpack desc TODO
-
-    console.log("Type of answer raw", typeof answerRaw);
-    console.log("Answer raw", answerRaw);
-    let answer = JSON.parse(answerRaw);
-    console.log("Got answer, setting remote: " + answerRaw);
-    let answerDesc = new RTCSessionDescription(answer);
-    await chatSession.peerConnection.setRemoteDescription(answerDesc);
-
-    selectChatWith(chatSession.oppositeAddr);
-  });
+  const address = from;
+  const name = await contract.getParticipantNameByAddress(address);
+  const encryptedMsg = await contract.getParticipantLeftMsg(to, msgIdx);
+  addConnectionRequestToElementList(
+    name,
+    address,
+    await chatEncryption.decryptTokenFrom(from, encryptedMsg, encKeys)
+  );
+  sendConnectionRequestNotification(name);
+}
+async function onAnswerAcquired(to, from) {
+  selectChatWith(from);
 }
 
 /**
  * Adds contact to UI contact list
  * @param {string} nickname contact name
- * @param {*} addr contact address
+ * @param {string} addr Ethereum address
  * @param {*} emptyPlaceholder is placeholder when there are no contacts in list
  * @returns
  */
@@ -638,24 +390,44 @@ function addContactToElementList(nickname, addr, emptyPlaceholder = false) {
 
   if (emptyPlaceholder) return;
 
-  document.getElementById(nickname + "-request-button").onclick = function () {
-    requestConnectionTo(addr);
-
-    contactsListElement.style.display = "none";
-  };
-  const copyAddressButtonEl = document.getElementById(
-    nickname + "-address-copy-button"
+  const addressCopyColEl = document.getElementById(
+    nickname + "-contact-address-copy-col"
   );
-  copyAddressButtonEl.onclick = function () {
-    const tipEl = document.getElementById(nickname + "-address-copy-tip");
 
-    tipEl.textContent = "Copied!";
-    setTimeout(() => {
-      tipEl.textContent = "Copy";
-    }, 2500);
+  CustomElements.insertCopyableAddressElement(
+    addressCopyColEl,
+    addr,
+    "contact",
+    0
+  );
 
-    navigator.clipboard.writeText(addr);
-  };
+  document.getElementById(nickname + "-request-button").onclick =
+    async function () {
+      const { value: subject } = await Swal.fire({
+        title: "Enter subject for the chat",
+        input: "text",
+        inputLabel: "Subject",
+        inputValue: "",
+        showCancelButton: true,
+
+        inputValidator: (value) => {
+          if (!value) {
+            return "You need to write something!";
+          }
+        },
+      });
+
+      const chatSession = await chatManager.requestConnectionTo(
+        addr,
+        subject,
+        chatSessionCallbacks
+      );
+
+      addChatToElementListByAddressIfNotExists(chatSession.oppositeAddr);
+      selectChatWith(chatSession.oppositeAddr);
+
+      contactsListElement.style.display = "none";
+    };
 }
 
 /**
@@ -871,7 +643,7 @@ async function connectMetamask() {
       title: "Error!",
       text: "You need to install Metamask to run this app!",
       icon: "error",
-      confirmButtonText: "Cool",
+      confirmButtonText: "OK",
     });
     console.log("Metamask is not installed!");
     return;
@@ -888,23 +660,13 @@ async function connectMetamask() {
 
     signinButtonElement.style.display = "block";
     signinButtonElement.onclick = onTrySignIn;
-
-    await initializeSignalingHandlers();
   } catch (err) {
     console.log(err);
   }
 
   onMetamaskConnect();
 }
-/**
- * Returns signaling and registration smart-contract
- * @returns ethers.Contract
- */
-async function getContract() {
-  const provider = new ethers.providers.Web3Provider(window.ethereum);
-  const signer = provider.getSigner();
-  return new ethers.Contract(contractAddress, abi, signer);
-}
+
 /**
  * Saves encryption keys as "keys.key" on the user's machine
  */
@@ -933,6 +695,8 @@ async function signUp() {
 
   let ec = new elliptic.ec("secp256k1");
   encKeys = ec.genKeyPair();
+  chatEncryption = new ChatEncryption(encKeys);
+  chatManager = new ChatManager(accountAddress, chatEncryption);
 
   console.log(encKeys.getPrivate("hex").toString());
   passwordedPrKey = CryptoJS.AES.encrypt(
@@ -1006,11 +770,15 @@ async function readKeys(event) {
  * Changes html and js states to indicate that person has signed in
  * @param {string} name
  */
-function setSignedInState(name) {
+async function setSignedInState(name) {
   signinButtonElement.textContent = name;
   signinButtonElement.disabled = true;
-  accountName = name;
+  accountName = name; //to redesign with multiple owned names in mind
   encKeys = encKeys; //enc keys should be initialized for correct sign in
+  chatEncryption = new ChatEncryption(encKeys);
+  chatManager = new ChatManager(accountAddress, chatEncryption);
+
+  await chatManager.initializeSignalingHandlers(contractEventHandlers);
 }
 /**
  * Starts sign in routine and returns true, if Metamask address is registered, otherwise returns false
@@ -1035,7 +803,7 @@ async function trySignIn() {
       return true;
     }
 
-    setSignedInState(participantName);
+    await setSignedInState(participantName);
 
     return true;
   }
@@ -1099,7 +867,7 @@ async function signIn() {
     return;
   }
 
-  setSignedInState(participantName);
+  await setSignedInState(participantName);
 
   hideWindowElement(signInPopupWindow);
   overlayElement.style.display = "none";
@@ -1114,50 +882,7 @@ async function onTrySignIn() {
     return;
   }
 }
-//may be create seperate util function that will not depend on html representation
-/**
- * Makes encrypted WebRTC answer and writes it to the contract
- * Is only applicable if <address> offered connection(the corresponing WebRTC offer is written to the contract).
- * @param {string} address Ethereum address
- */
-async function answerConnectionRequest(address) {
-  console.log(`connected to ${address}`);
 
-  const contract = await getContract();
-
-  const encryptedOffer = await contract.getConnectionRequestTokenByAddresses(
-    accountAddress,
-    address
-  );
-  const offerBlob = await decryptTokenFrom(address, encryptedOffer);
-
-  const offer = offerBlob; // to unpack desc (TODO)
-
-  console.log(typeof offer);
-  console.log("offer: " + offer);
-  let chatSession = new ChatSession(address, accountAddress, offer);
-  await initChatSession(chatSession, offer);
-  chatSessionsPerContactAddress.set(address, chatSession);
-
-  addChatToElementListByAddressIfNotExists(address);
-  selectChatWith(address);
-  logChat(null, "Answering connection request...", chatSession);
-}
-/**
- * Makes encrypted WebRTC offer and writes it to the contract
- * @param {string} address Ethereum address
- */
-async function requestConnectionTo(address) {
-  let chatSession = new ChatSession(accountAddress, address);
-  await initChatSession(chatSession);
-  chatSessionsPerContactAddress.set(address, chatSession);
-
-  addChatToElementListByAddressIfNotExists(address);
-  selectChatWith(address);
-  logChat(null, "Requested connection...", chatSession);
-
-  console.log(`requested connection to ${address}`);
-}
 /**
  * Called in app clickable elements events. Shows alerts if not all requirements are met.
  * Returns the bool that specifies whether the sign in was correctly performed.
@@ -1185,6 +910,96 @@ function onShowActiveChatLists() {
 
   return true;
 }
+
+/**
+ * Opens custom dropdown list for answering machine msgs list
+ * @returns
+ */
+async function showAnsweringMachineMsgsList() {
+  if (!onShowActiveChatLists()) return;
+
+  //showAnsweringMachineMsgsButton.classList.remove("new-notification");
+
+  const el = answeringMachineMsgsListElement;
+
+  el.style.display = el.style.display == "block" ? "none" : "block";
+
+  if (el.style.display == "block") {
+    await populateAnsweringMachineMsgsList();
+
+    if (el.childNodes.length == 0) {
+      el.style.display = "none";
+      return;
+    }
+  }
+}
+
+async function populateAnsweringMachineMsgsList() {
+  clearElement(answeringMachineMsgsListElement);
+
+  const contract = await getContract();
+  const msgsCount = await contract.getParticipantLeftMsgsCount(accountAddress);
+
+  console.log("Msgs count: " + msgsCount);
+
+  const maxLoadedEntries = 30;
+  const firstEntryIndex = msgsCount - maxLoadedEntries;
+  const entriesCount = Math.min(maxLoadedEntries, msgsCount); //loading only last 30 msgs
+
+  let i = msgsCount - 1;
+  let count = 0;
+  for (; i >= 0; i--) {
+    const timestamp = await contract.getParticipantLeftMsgTimestamp(
+      accountAddress,
+      i
+    );
+    //to uncomment
+    //if ((Date.now() - timestamp) / 1000 < 60*3) {
+    //  continue;
+    //}
+    const isAnswered = await contract.isParticipantLeftMsgAnswered(
+      accountAddress,
+      i
+    );
+    console.log("is answered: " + isAnswered);
+    if (isAnswered) {
+      continue;
+    }
+    const senderAddress = await contract.getParticipantLeftMsgSenderAddress(
+      accountAddress,
+      i
+    );
+
+    const encryptedMsg = await contract.getParticipantLeftMsg(
+      accountAddress,
+      i
+    );
+    const msg = await chatEncryption.decryptTokenFrom(
+      senderAddress,
+      encryptedMsg,
+      encKeys
+    );
+    console.log(msg);
+    const senderName = await contract.getParticipantNameByAddress(
+      senderAddress
+    );
+
+    addAnsweringMachineMsgToElementList(senderName, senderAddress, msg, i);
+
+    console.log(senderAddress + "-left-msgs-msg-tip-wrapper");
+    const msgTooltipElement = document.getElementById(
+      senderAddress + "-left-msgs-msg-tip-wrapper"
+    );
+    console.log(msgTooltipElement);
+
+    console.log("Added left msg");
+
+    if (count == entriesCount) break;
+
+    count++;
+  }
+}
+
 /**
  * Opens custom dropdown list for connection requests list
  * @returns
@@ -1207,6 +1022,7 @@ function showConnectionRequestsList() {
 
   el.style.display = el.style.display == "block" ? "none" : "block";
 }
+
 /**
  * Opens custom dropdown list for contacts list
  * @returns
@@ -1308,10 +1124,12 @@ async function onAddContact() {
 function onChatSessionMsg(chatSession) {
   if (chatSession != currentChatSession) {
     chatSelectArrow.classList.add("arrow-new-notification");
-
-    document
-      .getElementById(chatSession.oppositeAddr + "-chat-list-div")
-      .classList.add("new-notification");
+    const chatEl = document.getElementById(
+      chatSession.oppositeAddr + "-chat-list-div"
+    );
+    if (chatEl != null) {
+      chatEl.classList.add("new-notification");
+    }
   }
 }
 /**
@@ -1332,18 +1150,14 @@ function sendMsg(chatSession) {
 
   const msg = msgInputElement.value;
 
-  console.log(JSON.stringify(chatSession));
-  console.log(JSON.stringify(chatSession.peerConnection));
-  console.log(JSON.stringify(chatSession.dataChannel));
-  console.log(chatSession.peerConnection.ondatachannel);
-  chatSession.dataChannel.send(JSON.stringify({ message: msg }));
+  chatSession.sendMsg(msg);
 
   logChat(accountName, msg, chatSession);
   msgInputElement.value = "";
 }
 /**
  * Logs message in the UI part
- * @param {string} from Participant name or <null> if system message
+ * @param {string} from Participant name or "null" if system message
  * @param {string} msg Message
  * @param {ChatSession} chatSession
  */
