@@ -1,3 +1,7 @@
+:root {
+  --dropdown-content-row-height: 60px;
+}
+
 .row {
   display: flex;
   flex-direction: row;
@@ -12,6 +16,7 @@
   flex-direction: column;
   flex-basis: 100%;
   flex: 1;
+
 }
 
 .blue-column {
@@ -59,6 +64,9 @@ body {
   background-color: rgb(255, 255, 255);
   /*may its better with default one*/
   border: none;
+
+  justify-content: center;
+
 }
 
 .dropdown-button:enabled:hover {
@@ -103,13 +111,17 @@ body {
   padding: 0px;
   text-decoration: none;
   cursor: default;
-  height: 60px;
+  height: var(--dropdown-content-row-height);/*60px;*/
   font-size: large;
   opacity: 1;
   z-index: 9;
 
   box-shadow: inset 0 0 1px rgb(39, 38, 38, 0.8);
 
+}
+
+.use-dropdown-content-row-height {
+  height: var(--dropdown-content-row-height);
 }
 
 /*.dropdown-content-row :first-child{
@@ -123,9 +135,10 @@ body {
   flex: 0 0 auto;
 
   align-items: center;
-  
 }
-
+.vertical-center {
+  padding-top: calc(var(--dropdown-content-row-height) / 3);
+}
 .dropdown-content-row-minor-col {
   display: flex;
   flex-direction: column;
@@ -350,6 +363,11 @@ body {
 }
 
 .chat-select-button {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 10%;
+  padding: 10%;
   width: 100%;
   height: 100%;
   /*box-shadow: inset 0 0 1px rgb(39, 38, 38, 0.8);*/
@@ -412,6 +430,16 @@ body {
   cursor: pointer;
   box-shadow: inset 0 0 1px rgb(39, 38, 38, 0.8);
 
+}
+
+.chat-input-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  position: absolute;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .chat-select-option-row:hover{
@@ -491,7 +519,7 @@ body {
 
 .chat-input {
   box-shadow: inset 0 0 1px rgb(39, 38, 38, 0.8);
-  width: 80%;
+  width: 100%;
   height: 30px;
   box-sizing: border-box;
   margin-top: 0;
@@ -531,6 +559,13 @@ body {
 .tooltip {
   position: relative;
   display: inline-block;
+}
+
+.copy-address-tooltip-descr {
+  color:rgb(140, 140, 140); 
+  font-size:small; 
+  margin-top:7%;
+  cursor:pointer;
 }
 
 .tooltip .tooltiptext {

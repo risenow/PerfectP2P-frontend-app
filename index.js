@@ -236,6 +236,17 @@ function addAnsweringMachineMsgToElementList(nickname, address, msg, uniq) {
       uniq: uniq,
     })
   );
+  const addressCopyColEl = document.getElementById(
+    `${address}-left-msg-address-copy-col`
+  );
+  console.log("Left msg address col");
+  console.log(addressCopyColEl);
+  CustomElements.insertCopyableAddressElement(
+    addressCopyColEl,
+    address,
+    "left-msg",
+    uniq
+  );
 
   if (msg.length > 41) {
     const shortMsgEl = document.getElementById(
