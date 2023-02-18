@@ -2,8 +2,8 @@ import { ethers } from "./ethers-5.1.esm.min.js";
 
 const hhContractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const goerliContractAddress = "0xb9571544Fa2EcdE4b3E32962FBBa392D48b46985"; //old
-const avaxTstContractAddress = "0x6e1c79EE3360f02EfCda5015fBD80d8052Abe644"; //old "0x6710EA1caffb03d51E8A3c32e14965d92AD30EC1";
-const contractAddress = hhContractAddress; //"0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const avaxTstContractAddress = "0x067f4fEbce577233E17d53c2189B38bDDd0Dc2e3"; //old "0x6710EA1caffb03d51E8A3c32e14965d92AD30EC1";
+const contractAddress = avaxTstContractAddress; //"0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const abi = [
   {
     inputs: [],

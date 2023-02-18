@@ -4,6 +4,7 @@ import { getContract } from "./contract-constants.js";
 import * as CustomElements from "./custom-elements.js";
 import { ChatEncryption } from "./chat-encryption.js";
 import { ChatManager } from "./chat.js";
+import { authorizeUser, registerUser } from "./authorization.js";
 import "./elliptic.min.js";
 
 let loggedIn = false;
@@ -660,9 +661,10 @@ async function connectMetamask() {
     return;
   }
   try {
-    accounts = await window.ethereum.request({
+    window.ethereum.accounts = await window.ethereum.request({
       method: "eth_requestAccounts",
     });
+    accounts = window.ethereum.accounts;
     connectButtonElement.disabled = true;
     connectButtonElement.style.backgroundColor = "#bdd4bc"; //"#00ff00"
     connectButtonElement.textContent = "0x..." + accounts[0].substr(35, 7);
@@ -696,6 +698,7 @@ function openRegistrationMenu() {
 
   showWindowElement(registrationPopupWindow);
 }
+
 /**
  * Registers participant to smart contract using data from input fiels of registration window
  * @returns
@@ -704,59 +707,36 @@ async function signUp() {
   const pwdEl = document.getElementById("password-input");
   const usernameEl = document.getElementById("username-input");
 
-  let ec = new elliptic.ec("secp256k1");
-  encKeys = ec.genKeyPair();
-  chatEncryption = new ChatEncryption(encKeys);
+  const registrationResult = await registerUser(usernameEl.value, pwdEl.value, {
+    onAlreadyRegistered: () => {
+      Swal.fire({
+        title: "Error!",
+        text: "Name already registered!",
+        icon: "error",
+        confirmButtonText: "Cool",
+      });
+    },
+    onBeforeRegistrationTx: () => {
+      proceedSignupButtonElement.disabled = true;
+    },
+    onRegistrationTxReverted: () => {
+      Swal.fire({
+        title: "Error!",
+        text: "Transaction error. Try shorter name.",
+        icon: "error",
+        confirmButtonText: "Cool",
+      });
+      proceedSignupButtonElement.disabled = false;
+    },
+  });
+
+  if (!registrationResult) {
+    return;
+  }
+
+  chatEncryption = new ChatEncryption(registrationResult.encKeys);
   chatManager = new ChatManager(accountAddress, chatEncryption);
-
-  console.log(encKeys.getPrivate("hex").toString());
-  passwordedPrKey = CryptoJS.AES.encrypt(
-    correctDecryptionSignature + encKeys.getPrivate("hex").toString(), //couple with signature so that we can know that password used for decryption was correct
-    pwdEl.value
-  ).toString();
-
-  const publicEncKeyInStringBytes = "0x" + encKeys.getPublic(true, "hex");
-  console.log(publicEncKeyInStringBytes);
-  const contract = await getContract();
-
-  const nameHash = CryptoJS.SHA256(usernameEl.value);
-  const nameAlreadyRegistered = await contract.isParticipantNameHash(
-    "0x" + nameHash
-  );
-
-  if (nameAlreadyRegistered) {
-    Swal.fire({
-      title: "Error!",
-      text: "Name already registered!",
-      icon: "error",
-      confirmButtonText: "Cool",
-    });
-
-    return;
-  }
-
-  proceedSignupButtonElement.disabled = true;
-
-  let txResp;
-  try {
-    txResp = await contract.register(
-      usernameEl.value,
-      publicEncKeyInStringBytes
-    );
-  } catch (e) {
-    Swal.fire({
-      title: "Error!",
-      text: "Transaction error. Try shorter name.",
-      icon: "error",
-      confirmButtonText: "Cool",
-    });
-    proceedSignupButtonElement.disabled = false;
-    return;
-  }
-
-  await txResp.wait(1);
-
-  await trySignIn();
+  setSignedInState(registrationResult.user, registrationResult.encKeys);
 
   downloadKeysButtonElement.style.display = "block";
   Swal.fire({
@@ -766,6 +746,8 @@ async function signUp() {
     confirmButtonText: "I understand",
   });
   hideAllWindowElements();
+
+  return;
 }
 /**
  * Reads encrypted keys from the file input
@@ -780,12 +762,13 @@ async function readKeys(event) {
 /**
  * Changes html and js states to indicate that person has signed in
  * @param {string} name
+ * @param {EllipticKeys} elEncKeys elliptic keys for encryption
  */
-async function setSignedInState(name) {
+async function setSignedInState(name, elEncKeys) {
   signinButtonElement.textContent = name;
   signinButtonElement.disabled = true;
   accountName = name; //to redesign with multiple owned names in mind
-  encKeys = encKeys; //enc keys should be initialized for correct sign in
+  encKeys = elEncKeys; //enc keys should be initialized for correct sign in
   chatEncryption = new ChatEncryption(encKeys);
   chatManager = new ChatManager(accountAddress, chatEncryption);
 
@@ -814,7 +797,7 @@ async function trySignIn() {
       return true;
     }
 
-    await setSignedInState(participantName);
+    await setSignedInState(participantName, encKeys); //unreachable?
 
     return true;
   }
@@ -829,10 +812,6 @@ async function trySignIn() {
 async function signIn() {
   const contract = await getContract();
 
-  const participantName = await contract.getParticipantNameByAddress(
-    accounts[0]
-  );
-
   if (passwordedPrKeyPromise == null) {
     Swal.fire({
       title: "Error!",
@@ -843,45 +822,49 @@ async function signIn() {
 
     return;
   }
-
-  const password = signinPasswordInputElement.value;
-
   passwordedPrKey = await passwordedPrKeyPromise;
-  const bytes = CryptoJS.AES.decrypt(passwordedPrKey, password);
-  let plainPrKey = bytes.toString(CryptoJS.enc.Utf8);
-  if (!plainPrKey.includes(correctDecryptionSignature)) {
+
+  const authorizedUser = await authorizeUser(
+    signinPasswordInputElement.value,
+    passwordedPrKey,
+    {
+      onInvalidPassword: function () {
+        Swal.fire({
+          title: "Error!",
+          text: "Wrong password",
+          icon: "error",
+          confirmButtonText: "Cool",
+        });
+      },
+      onInvalidKey: function () {
+        Swal.fire({
+          title: "Error!",
+          text: "Invalid key!",
+          icon: "error",
+          confirmButtonText: "Cool",
+        });
+      },
+    }
+  );
+
+  if (authorizedUser == null) {
     Swal.fire({
       title: "Error!",
-      text: "Wrong password",
+      text: "Invalid user!",
       icon: "error",
       confirmButtonText: "Cool",
     });
-
-    return;
-  }
-  plainPrKey = plainPrKey.substring(correctDecryptionSignature.length); //remove signature
-  let ec = new elliptic.ec("secp256k1");
-  encKeys = ec.keyFromPrivate(plainPrKey, "hex");
-
-  const publicEncKeyInStringBytesExpected =
-    await contract.getEncryptionKeyByAddress(accounts[0]);
-  const publicEncKeyInStringBytesActual = "0x" + encKeys.getPublic(true, "hex");
-
-  if (publicEncKeyInStringBytesExpected != publicEncKeyInStringBytesActual) {
-    Swal.fire({
-      title: "Error!",
-      text: "Invalid key!",
-      icon: "error",
-      confirmButtonText: "Cool",
-    });
-
     return;
   }
 
-  await setSignedInState(participantName);
+  console.log("Set Keys:");
+  console.log(authorizedUser.encKeys);
+  await setSignedInState(authorizedUser.user, authorizedUser.encKeys);
 
   hideWindowElement(signInPopupWindow);
   overlayElement.style.display = "none";
+
+  return;
 }
 /**
  * Starts Sign In routine if Metamsk address is registered, otherwise starts registration routine
